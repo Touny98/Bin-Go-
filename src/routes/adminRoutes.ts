@@ -29,7 +29,7 @@ router.post('/payouts/:id/approve', RBACService.checkPermission('approve_payouts
     amount: parseFloat(payout.amount)
   });
 
-  await AdminAuditService.logAction(admin.id, 'APPROVE_PAYOUT', 'payout', id, {}, req.ip);
+  await AdminAuditService.logAction(admin.id, 'APPROVE_PAYOUT', 'payout', id as string, {}, req.ip);
   
   res.json({ success: true, message: 'Payout approved and enqueued for processing' });
 });

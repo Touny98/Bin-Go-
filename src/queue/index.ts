@@ -8,7 +8,7 @@ dotenv.config();
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
 // Reusable Redis connection for BullMQ
-export const connection = new IORedis(redisUrl, {
+export const connection = new Redis(redisUrl, {
   maxRetriesPerRequest: null,
 });
 
@@ -28,5 +28,10 @@ export const campaignQueue = new Queue('campaign-queue', { connection });
 export const payoutQueue = new Queue('payout-queue', { connection });
 export const reconciliationQueue = new Queue('reconciliation-queue', { connection });
 export const fraudQueue = new Queue('fraud-queue', { connection });
+
+// Additional Queues
+export const whatsappOutboundQueue = new Queue('whatsapp-outbound-queue', { connection });
+export const notificationsQueue = new Queue('notifications-queue', { connection });
+export const analyticsQueue = new Queue('analytics-queue', { connection });
 
 console.log('BullMQ queues initialized.');

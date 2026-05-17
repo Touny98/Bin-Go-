@@ -9,6 +9,8 @@
     "dev": "nodemon src/index.ts",
     "dev:orchestrator": "nodemon src/orchestrator/index.ts",
     "build": "tsc",
+    "seed": "ts-node src/scripts/seed.ts",
+    "simulate:flow": "ts-node src/scripts/simulateFlow.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -19,6 +21,7 @@
     "@bull-board/api": "^7.1.5",
     "@bull-board/express": "^7.1.5",
     "@socket.io/redis-adapter": "^8.3.0",
+    "axios": "^1.16.1",
     "bullmq": "^5.76.8",
     "canvas": "^3.2.3",
     "cors": "^2.8.6",
@@ -33,6 +36,7 @@
     "qrcode-terminal": "^0.12.0",
     "redis": "^5.12.1",
     "socket.io": "^4.8.3",
+    "uuid": "^14.0.0",
     "whatsapp-web.js": "^1.34.7"
   },
   "devDependencies": {
@@ -41,6 +45,7 @@
     "@types/node": "^25.8.0",
     "@types/pg": "^8.20.0",
     "@types/qrcode-terminal": "^0.12.2",
+    "@types/uuid": "^10.0.0",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"

@@ -31,11 +31,12 @@ export class GameSessionService {
         return false;
       }
 
-      // We need to resolve the winnerUserId to the actual internal DB User ID.
-      // For simplicity in this architectural demo, we assume the DB user ID is fetched.
-      // In a real app: const user = await client.query('SELECT id FROM users WHERE phone_number = $1', [winnerUserId]);
-      
-      const internalUserId = 1; // MOCK until full auth is wired
+      // We resolve the winnerUserId (phone number string or string ID) to the actual internal DB User ID.
+      const userRes = await client.query('SELECT id FROM users WHERE phone_number = $1 OR id::text = $1', [winnerUserId]);
+      if (userRes.rows.length === 0) {
+        throw new Error(`User with phone/ID ${winnerUserId} not found.`);
+      }
+      const internalUserId = userRes.rows[0].id;
 
       // We won the race! Lock the winner.
       await client.query(

@@ -11,6 +11,20 @@ export class CardReservationService {
   public static async reserveCards(userId: number, gameId: number, quantity: number, pricePerCard: number): Promise<any> {
     logger.info({ userId, gameId, quantity }, `[CardReservationService] Initiating reservation`);
 
+    // Resolve internal user ID from phone number/user ID
+    let internalUserId = userId;
+    if (userId > 2147483647) {
+      const phoneStr = userId.toString();
+      const userRes = await query('SELECT id FROM users WHERE phone_number = $1', [phoneStr]);
+      if (userRes.rows.length > 0) {
+        internalUserId = userRes.rows[0].id;
+      } else {
+        const insertRes = await query('INSERT INTO users (phone_number) VALUES ($1) RETURNING id', [phoneStr]);
+        internalUserId = insertRes.rows[0].id;
+      }
+      logger.info({ userId, internalUserId }, '[CardReservationService] Resolved out-of-range userId to database ID');
+    }
+
     // 0. Validate Room State
     const sessionCheck = await query('SELECT status FROM game_sessions WHERE id = $1', [gameId]);
     if (sessionCheck.rows.length === 0 || !['CREATED', 'READY'].includes(sessionCheck.rows[0].status)) {
@@ -22,6 +36,8 @@ export class CardReservationService {
     await query('UPDATE game_sessions SET jackpot_amount = jackpot_amount + $1 WHERE id = $2', [jackpotContribution, gameId]);
     
     // 1. Generate Cards
+    const cardsData: any[] = [];
+    for (let i = 0; i < quantity; i++) {
       cardsData.push(BingoEngine.generateCard()); // Using deterministic RNG if implemented
     }
 
@@ -33,7 +49,7 @@ export class CardReservationService {
       // Create unpaid card
       const cardRes = await query(
         `INSERT INTO cards (user_id, game_session_id, matrix, status) VALUES ($1, $2, $3, 'unpaid') RETURNING id`,
-        [userId, gameId, JSON.stringify(matrix)]
+        [internalUserId, gameId, JSON.stringify(matrix)]
       );
       const cardId = cardRes.rows[0].id;
 
@@ -41,7 +57,7 @@ export class CardReservationService {
       const resResult = await query(
         `INSERT INTO card_reservations (game_id, user_id, card_id, status, expires_at) 
          VALUES ($1, $2, $3, 'RESERVED', NOW() + INTERVAL '15 minutes') RETURNING id`,
-        [gameId, userId, cardId]
+        [gameId, internalUserId, cardId]
       );
       reservationIds.push(resResult.rows[0].id);
     }

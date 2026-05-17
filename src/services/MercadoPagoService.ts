@@ -10,6 +10,19 @@ export class MercadoPagoService {
    * Create a payment preference (checkout link)
    */
   static async createPreference(title: string, quantity: number, unitPrice: number, userId: string, externalReference: string) {
+    const isMock = process.env.WHATSAPP_MOCK === 'true' || 
+                   !MP_ACCESS_TOKEN || 
+                   MP_ACCESS_TOKEN.includes('placeholder') || 
+                   MP_ACCESS_TOKEN.includes('your_');
+
+    if (isMock) {
+      const mockPrefId = `MOCK_PREF_${Date.now()}`;
+      return {
+        id: mockPrefId,
+        init_point: `https://sandbox.mercadopago.com.ar/checkout/v1/redirect?pref_id=${mockPrefId}`,
+      };
+    }
+
     try {
       const response = await axios({
         method: 'POST',
@@ -56,6 +69,21 @@ export class MercadoPagoService {
    * Verify payment status from webhook data
    */
   static async getPaymentInfo(paymentId: string) {
+    const isMock = process.env.WHATSAPP_MOCK === 'true' || 
+                   !MP_ACCESS_TOKEN || 
+                   MP_ACCESS_TOKEN.includes('placeholder') || 
+                   MP_ACCESS_TOKEN.includes('your_') ||
+                   paymentId.startsWith('MOCK_');
+
+    if (isMock) {
+      return {
+        id: paymentId,
+        status: 'approved',
+        external_reference: `RES_MOCK_${Date.now()}`,
+        transaction_amount: 10,
+      };
+    }
+
     try {
       const response = await axios({
         method: 'GET',

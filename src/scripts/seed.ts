@@ -1,10 +1,13 @@
-import { query } from '../db';
+import { query, initDb } from '../db';
 import { logger } from '../utils/logger';
 
 async function seed() {
   logger.info('🌱 Starting BinGo! Database Seeding...');
-
+  
   try {
+    // 0. Initialize DB Schema
+    logger.info('Initializing DB Schema...');
+    await initDb();
     // 1. Seed Rooms
     logger.info('Seeding rooms...');
     const roomSeeds = [

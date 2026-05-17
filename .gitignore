@@ -1,0 +1,67 @@
+# Dependencias de paquetes
+node_modules/
+jspm_packages/
+web_modules/
+
+# Directorios de compilación y salida
+dist/
+build/
+.next/
+out/
+.docusaurus/
+.serverless/
+.fusebox/
+.dynamodb/
+
+# Registros y reportes de cobertura
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+coverage/
+.nyc_output/
+
+# Variables de entorno y secretos locales
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+!.env.example
+!env.production.example
+
+# Archivos de caché y configuración local
+.eslintcache
+.stylelintcache
+.node-repl_history
+*.tsbuildinfo
+.npm/
+.yarn/
+.pnpm-store/
+
+# Volcados y respaldos de bases de datos
+*.sql
+*.sql.gz
+*.sql.tar
+*.rdb
+dump.rdb
+backups/
+
+# WhatsApp Web & Credenciales Headless
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Archivos del sistema operativo y editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

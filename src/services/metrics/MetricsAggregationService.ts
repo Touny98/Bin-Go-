@@ -79,7 +79,7 @@ export class MetricsAggregationService {
     let dbHealthy = false;
     try {
       const res = await query('SELECT 1');
-      dbHealthy = res.rowCount > 0;
+      dbHealthy = res && res.rowCount !== null && res.rowCount > 0;
     } catch (_) {}
 
     // Redis health (PING)
