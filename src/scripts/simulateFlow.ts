@@ -25,7 +25,7 @@ async function simulate() {
     console.log('🗄️  [1/8] Initializing Database Schema & Seeding clean states...');
     await initDb();
     
-    // Clean old data to ensure absolute idempotency
+    // Clean old data to ensure absolute idempotency, observing all foreign key constraints
     await query('DELETE FROM ledger_entries');
     await query('DELETE FROM card_reservations');
     await query('DELETE FROM cards');
@@ -33,6 +33,8 @@ async function simulate() {
     await query('DELETE FROM game_events');
     await query('DELETE FROM notification_logs');
     await query('DELETE FROM conversation_logs');
+    await query('UPDATE game_sessions SET winner_id = NULL');
+    await query('DELETE FROM game_sessions');
     await query('DELETE FROM users WHERE phone_number = $1', ['5491122334455']);
 
     // Seed Room and Active Game Session
@@ -63,6 +65,8 @@ async function simulate() {
     console.log('\n⚙️  [2/8] Activating event subscribers & booting background workers...');
     EventSubscribers.initialize();
     await WorkerFactory.boot();
+    console.log('⏳  Waiting 3 seconds for background workers to establish Redis connections...');
+    await sleep(3000);
     console.log('✅  Event listeners active and BullMQ workers booted.');
 
     // Step 3: Initialize Mock WhatsApp Provider
@@ -78,7 +82,11 @@ async function simulate() {
     whatsAppProvider.triggerMockMessage(mockPhoneNumber, 'BINGO');
     await sleep(2500);
 
-    console.log('🗣️  User sends: "1" (Select Room 1)');
+    console.log('🗣️  User sends: "1" (Browse Available Rooms)');
+    whatsAppProvider.triggerMockMessage(mockPhoneNumber, '1');
+    await sleep(2500);
+
+    console.log('🗣️  User sends: "1" (Select Room 1 - Bingo Express ⚡)');
     whatsAppProvider.triggerMockMessage(mockPhoneNumber, '1');
     await sleep(2500);
 
