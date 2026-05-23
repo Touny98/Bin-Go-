@@ -3,6 +3,7 @@ import { IntentRouter } from './IntentRouter';
 import { MainMenuHandler } from './handlers/MainMenuHandler';
 import { RoomBrowserHandler } from './handlers/RoomBrowserHandler';
 import { PurchaseHandler } from './handlers/PurchaseHandler';
+import { PaymentWaitHandler } from './handlers/PaymentWaitHandler';
 import { BaseHandler } from './handlers/BaseHandler';
 import { logger } from '../utils/logger';
 import { notifyHighQueue, connection } from '../queue';
@@ -15,7 +16,7 @@ export class ConversationOrchestrator {
     'MAIN_MENU': new MainMenuHandler(),
     'ROOM_BROWSER': new RoomBrowserHandler(),
     'PURCHASING': new PurchaseHandler(),
-    'WAITING_PAYMENT': new MainMenuHandler(), // For now, just menu
+    'WAITING_PAYMENT': new PaymentWaitHandler(),
   };
 
   /**

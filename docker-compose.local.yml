@@ -1,0 +1,102 @@
+version: '3.8'
+
+# Stack local para pruebas con ngrok.
+# Expone la API en :3000, admin en :3001, ngrok UI en :4040.
+# No incluye nginx ni certbot — ngrok provee el HTTPS externo.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: bingo_local_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bingo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bingo_password}
+      POSTGRES_DB: ${POSTGRES_DB:-bingo_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_local_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: bingo_local_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_local_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bingo_local_app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://${POSTGRES_USER:-bingo_user}:${POSTGRES_PASSWORD:-bingo_password}@postgres:5432/${POSTGRES_DB:-bingo_db}
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "3010:3010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - wwebjs_auth_local:/app/.wwebjs_auth
+
+  admin-web:
+    build:
+      context: ./apps/admin-web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3010
+        NEXT_PUBLIC_WS_URL: http://localhost:3010
+    container_name: bingo_local_admin_web
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:3010
+      - NEXT_PUBLIC_WS_URL=http://localhost:3010
+    ports:
+      - "3011:3001"
+    depends_on:
+      - app
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: bingo_local_ngrok
+    restart: unless-stopped
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+      - NGROK_DOMAIN=${NGROK_DOMAIN:-}
+    # --url usa el dominio estático si está definido (ngrok v3)
+    entrypoint: sh -c
+    command: >
+      "if [ -n \"$$NGROK_DOMAIN\" ];
+       then exec ngrok http app:3010 --url=$$NGROK_DOMAIN --log=stdout;
+       else exec ngrok http app:3010 --log=stdout;
+       fi"
+    ports:
+      - "4040:4040"
+    depends_on:
+      - app
+
+volumes:
+  pg_local_data:
+  redis_local_data:
+  wwebjs_auth_local:

@@ -1,6 +1,7 @@
 import { Client, LocalAuth, MessageMedia } from 'whatsapp-web.js';
 import qrcode from 'qrcode-terminal';
 import path from 'path';
+import fs from 'fs';
 import { WhatsAppProvider } from './WhatsAppProvider';
 import { MockWhatsAppClient } from './MockWhatsAppClient';
 import { logger } from '../../utils/logger';
@@ -12,14 +13,62 @@ export class WhatsAppWebProvider implements WhatsAppProvider {
 
   constructor() {
     const isMock = process.env.WHATSAPP_MOCK === 'true';
-    
+
     if (isMock) {
       this.client = new MockWhatsAppClient();
     } else {
+      const authPath = '/app/.wwebjs_auth';
+
+      // Clean Chrome lock files before initializing
+      try {
+        const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+        const dirsToClean = [
+          authPath,
+          path.join(authPath, 'session-bingo-client'),
+          path.join(authPath, 'session-bingo-client', 'Default'),
+          path.join(authPath, 'Default')
+        ];
+        for (const dir of dirsToClean) {
+          for (const lockFile of lockFiles) {
+            const lockPath = path.join(dir, lockFile);
+            try {
+              // lstatSync works on broken symlinks, whereas existsSync returns false
+              const stats = fs.lstatSync(lockPath);
+              if (stats) {
+                fs.unlinkSync(lockPath);
+                logger.info({ lockPath }, '[WhatsAppWebProvider] Cleaned Chrome lock/socket/cookie');
+              }
+            } catch (err: any) {
+              if (err.code !== 'ENOENT') {
+                logger.warn({ lockPath, error: err.message }, '[WhatsAppWebProvider] Could not unlink Chrome lock file');
+              }
+            }
+          }
+        }
+      } catch (e: any) {
+        logger.warn({ error: e.message }, '[WhatsAppWebProvider] Could not clean Chrome lock files');
+      }
+
+      // Create auth directory if it doesn't exist
+      if (!fs.existsSync(authPath)) {
+        fs.mkdirSync(authPath, { recursive: true });
+      }
+
       this.client = new Client({
-        authStrategy: new LocalAuth(),
+        authStrategy: new LocalAuth({
+          clientId: 'bingo-client',
+          dataPath: authPath
+        }),
         puppeteer: {
-          args: ['--no-sandbox', '--disable-setuid-sandbox']
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process'
+          ],
+          headless: true
         }
       });
     }
@@ -81,18 +130,26 @@ export class WhatsAppWebProvider implements WhatsAppProvider {
 
   public async sendMessage(to: string, text: string): Promise<boolean> {
     if (!this.isReady) {
-      logger.warn('[WhatsAppWebProvider] Attempting to send message before ready state, waiting...');
+      logger.warn({ to, text: text.substring(0, 50) }, '[WhatsAppWebProvider] Attempting to send message before ready state');
+      // In mock mode, client.sendMessage is instant
+      // In real mode, this will still fail but we need to know
     }
-    const chatId = to.includes('@c.us') ? to : `${to}@c.us`;
-    await this.client.sendMessage(chatId, text);
-    return true;
+    const chatId = to.includes('@') ? to : `${to}@c.us`;
+    try {
+      await this.client.sendMessage(chatId, text);
+      logger.info({ to }, '[WhatsAppWebProvider] Message sent successfully');
+      return true;
+    } catch (error: any) {
+      logger.error({ to, error: error.message }, '[WhatsAppWebProvider] Failed to send message');
+      throw error;
+    }
   }
 
   public async sendImage(to: string, mediaPath: string, caption?: string): Promise<boolean> {
     if (!this.isReady) {
       logger.warn('[WhatsAppWebProvider] Attempting to send image before ready state, waiting...');
     }
-    const chatId = to.includes('@c.us') ? to : `${to}@c.us`;
+    const chatId = to.includes('@') ? to : `${to}@c.us`;
     
     // In mock mode, we bypass MessageMedia.fromFilePath to avoid local file IO crashes
     if (process.env.WHATSAPP_MOCK === 'true') {

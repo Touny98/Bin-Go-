@@ -1,5 +1,6 @@
 import { query, initDb } from '../db';
 import { logger } from '../utils/logger';
+import { AdminAuthService } from '../auth/AdminAuthService';
 
 async function seed() {
   logger.info('🌱 Starting BinGo! Database Seeding...');
@@ -62,11 +63,14 @@ async function seed() {
 
     // 4. Seed Admin User
     logger.info('Seeding admin user...');
+    const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || 'BinGo!Admin2024';
+    const passwordHash = await AdminAuthService.hashPassword(defaultPassword);
     await query(`
       INSERT INTO admin_users (id, username, password_hash, role, status)
-      VALUES (1, 'admin', 'admin123_hash_placeholder', 'SUPER_ADMIN', 'ACTIVE')
-      ON CONFLICT (id) DO NOTHING
-    `);
+      VALUES (1, 'admin', $1, 'SUPER_ADMIN', 'ACTIVE')
+      ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash
+    `, [passwordHash]);
+    logger.info({ username: 'admin', password: defaultPassword }, '🔑 Admin credentials (change after first login)');
 
     logger.info('✅ BinGo! Database Seeding completed successfully!');
     process.exit(0);

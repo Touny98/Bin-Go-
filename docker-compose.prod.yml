@@ -9,8 +9,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-bingo_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bingo_password}
       POSTGRES_DB: ${POSTGRES_DB:-bingo_db}
-    ports:
-      - "5432:5432"
     volumes:
       - pg_prod_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,8 +22,6 @@ services:
     container_name: bingo_prod_redis
     restart: always
     command: redis-server --appendonly yes --save 60 1
-    ports:
-      - "6379:6379"
     volumes:
       - redis_prod_data:/data
     healthcheck:
@@ -40,19 +36,64 @@ services:
       dockerfile: Dockerfile
     container_name: bingo_prod_app
     restart: always
+    env_file: .env
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgres://${POSTGRES_USER:-bingo_user}:${POSTGRES_PASSWORD:-bingo_password}@postgres:5432/${POSTGRES_DB:-bingo_db}
       - REDIS_URL=redis://redis:6379
-      - PORT=3000
-    ports:
-      - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      # Persist WhatsApp session across restarts
+      - wwebjs_auth:/app/.wwebjs_auth
+
+  admin-web:
+    build:
+      context: ./apps/admin-web
+      dockerfile: Dockerfile
+    container_name: bingo_prod_admin_web
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=https://${DOMAIN:-localhost}
+      - NEXT_PUBLIC_WS_URL=https://${DOMAIN:-localhost}
+    depends_on:
+      - app
+
+  nginx:
+    image: nginx:alpine
+    container_name: bingo_prod_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot:ro
+    depends_on:
+      - app
+      - admin-web
+
+  certbot:
+    image: certbot/certbot
+    container_name: bingo_prod_certbot
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    entrypoint: >
+      sh -c "trap exit TERM;
+             while :; do
+               certbot renew --webroot -w /var/www/certbot --quiet;
+               sleep 12h & wait $${!};
+             done"
 
 volumes:
   pg_prod_data:
   redis_prod_data:
+  wwebjs_auth:
+  letsencrypt:
+  certbot_webroot:

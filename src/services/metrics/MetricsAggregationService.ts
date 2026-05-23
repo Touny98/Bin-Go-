@@ -91,23 +91,52 @@ export class MetricsAggregationService {
 
     // System metrics
     const cpuLoad = os.loadavg(); // [1,5,15] minute averages
-    const memoryUsage = {
-      total: os.totalmem(),
-      free: os.freemem(),
-      used: os.totalmem() - os.freemem(),
-    };
+    const memoryUsageBytes = os.totalmem() - os.freemem();
+    const memoryUsagePercent = (memoryUsageBytes / os.totalmem()) * 100;
 
     // Business metrics – placeholder aggregates
-    const revenueRes = await query(`
-      SELECT SUM(amount) as total FROM ledger_entries
-      WHERE category = 'DEPOSIT' AND created_at > NOW() - INTERVAL '24 hours'
-    `);
-    const dailyRevenue = parseFloat(revenueRes.rows[0].total || '0');
+    let dailyRevenue = 0;
+    let activeRooms = 0;
+    let pendingPayouts = 0;
 
-    const activeRoomsRes = await query(
-      "SELECT COUNT(*) FROM game_sessions WHERE status IN ('READY','IN_PROGRESS')",
-    );
-    const activeRooms = parseInt(activeRoomsRes.rows[0].count);
+    try {
+      const revenueRes = await query(`
+        SELECT SUM(amount) as total FROM ledger_entries
+        WHERE category = 'DEPOSIT' AND created_at > NOW() - INTERVAL '24 hours'
+      `);
+      dailyRevenue = parseFloat(revenueRes.rows[0]?.total || '0');
+    } catch (e) {
+      logger.warn('Failed to compute daily revenue');
+    }
+
+    try {
+      const activeRoomsRes = await query(
+        "SELECT COUNT(*) FROM game_sessions WHERE status IN ('READY','IN_PROGRESS')",
+      );
+      activeRooms = parseInt(activeRoomsRes.rows[0]?.count || '0');
+    } catch (e) {
+      logger.warn('Failed to compute active rooms');
+    }
+
+    try {
+      const payoutRes = await query(
+        "SELECT COUNT(*) FROM payout_requests WHERE status = 'PENDING'",
+      );
+      pendingPayouts = parseInt(payoutRes.rows[0]?.count || '0');
+    } catch (e) {
+      logger.warn('Failed to compute pending payouts');
+    }
+
+    // Presence (online users) – placeholder
+    let onlineUsers = 0;
+    try {
+      const onlineRes = await query(
+        "SELECT COUNT(DISTINCT user_id) FROM game_sessions WHERE status IN ('READY','IN_PROGRESS')",
+      );
+      onlineUsers = parseInt(onlineRes.rows[0]?.count || '0');
+    } catch (e) {
+      logger.warn('Failed to compute online users');
+    }
 
     const snapshot = {
       timestamp: new Date().toISOString(),
@@ -118,11 +147,16 @@ export class MetricsAggregationService {
       },
       system: {
         cpuLoad,
-        memoryUsage,
+        memoryUsage: memoryUsagePercent,
+        redisHealth: redisHealthy ? 'healthy' : 'unhealthy',
       },
       business: {
         dailyRevenue,
         activeRooms,
+        pendingPayouts,
+      },
+      presence: {
+        online: onlineUsers,
       },
     };
 

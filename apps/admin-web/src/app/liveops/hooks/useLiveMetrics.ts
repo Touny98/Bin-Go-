@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
+import { api } from '@/lib/api';
 import { socket } from '@/lib/socket';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export interface MetricsData {
   timestamp: string;
@@ -14,15 +12,16 @@ export interface MetricsData {
   };
   system: {
     cpuLoad: number[];
-    memoryUsage: {
-      total: number;
-      free: number;
-      used: number;
-    };
+    memoryUsage: number;
+    redisHealth?: string;
   };
   business: {
     dailyRevenue: number;
     activeRooms: number;
+    pendingPayouts?: number;
+  };
+  presence: {
+    online: number;
   };
   alerts: any[];
 }
@@ -43,7 +42,7 @@ export const useLiveMetrics = () => {
   const { data, isLoading, isError, refetch } = useQuery<MetricsResponse>({
     queryKey: ['liveMetrics'],
     queryFn: async () => {
-      const response = await axios.get(`${API_URL}/api/admin/metrics/live`);
+      const response = await api.get('/api/admin/metrics/live');
       return response.data;
     },
     refetchInterval: false, // We rely on WebSockets for updates

@@ -5,17 +5,24 @@ dotenv.config();
 
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || '';
 
-export class MercadoPagoService {
-  /**
-   * Create a payment preference (checkout link)
-   */
-  static async createPreference(title: string, quantity: number, unitPrice: number, userId: string, externalReference: string) {
-    const isMock = process.env.WHATSAPP_MOCK === 'true' || 
-                   !MP_ACCESS_TOKEN || 
-                   MP_ACCESS_TOKEN.includes('placeholder') || 
-                   MP_ACCESS_TOKEN.includes('your_');
+// MP_MOCK se activa solo cuando el token está ausente o es un placeholder.
+// WHATSAPP_MOCK controla únicamente WhatsApp, no pagos.
+function isMockToken(paymentId?: string): boolean {
+  if (!MP_ACCESS_TOKEN) return true;
+  if (MP_ACCESS_TOKEN.includes('placeholder') || MP_ACCESS_TOKEN.includes('your_')) return true;
+  if (paymentId?.startsWith('MOCK_')) return true;
+  return false;
+}
 
-    if (isMock) {
+export class MercadoPagoService {
+  static async createPreference(
+    title: string,
+    quantity: number,
+    unitPrice: number,
+    userId: string,
+    externalReference: string
+  ) {
+    if (isMockToken()) {
       const mockPrefId = `MOCK_PREF_${Date.now()}`;
       return {
         id: mockPrefId,
@@ -34,30 +41,28 @@ export class MercadoPagoService {
         data: {
           items: [
             {
-              title: title,
+              title,
               description: 'Cartones de Bingo',
-              quantity: quantity,
+              quantity,
               currency_id: 'ARS',
               unit_price: unitPrice,
             },
           ],
-          payer: {
-            // we can put user identifier here if needed
-          },
-          external_reference: externalReference, // very important to match webhook
+          payer: {},
+          external_reference: externalReference,
           back_urls: {
-            success: 'https://tusitio.com/success',
-            pending: 'https://tusitio.com/pending',
-            failure: 'https://tusitio.com/failure',
+            success: process.env.MP_BACK_URL_SUCCESS || 'https://localhost/success',
+            pending: process.env.MP_BACK_URL_PENDING || 'https://localhost/pending',
+            failure: process.env.MP_BACK_URL_FAILURE || 'https://localhost/failure',
           },
           auto_return: 'approved',
-          notification_url: 'https://tusitio.com/api/payments/webhook', // Should be an env var
+          notification_url: process.env.MP_WEBHOOK_URL || 'https://localhost/api/payments/webhook',
         },
       });
 
       return {
         id: response.data.id,
-        init_point: response.data.init_point, // The URL to send to the user
+        init_point: response.data.init_point,
       };
     } catch (error: any) {
       console.error('Error creating MP preference:', error.response?.data || error.message);
@@ -65,21 +70,17 @@ export class MercadoPagoService {
     }
   }
 
-  /**
-   * Verify payment status from webhook data
-   */
   static async getPaymentInfo(paymentId: string) {
-    const isMock = process.env.WHATSAPP_MOCK === 'true' || 
-                   !MP_ACCESS_TOKEN || 
-                   MP_ACCESS_TOKEN.includes('placeholder') || 
-                   MP_ACCESS_TOKEN.includes('your_') ||
-                   paymentId.startsWith('MOCK_');
+    if (isMockToken(paymentId)) {
+      // In mock mode, extract the externalRef from the paymentId that was passed (format: MOCK_RES_...)
+      // The test endpoint creates it as: await paymentConfirmationQueue.add('payment.webhook', { paymentId: 'MOCK_' + externalRef })
+      // So we need to reverse it: MOCK_RES_... -> RES_...
+      const externalRef = paymentId.startsWith('MOCK_') ? paymentId.substring(5) : paymentId;
 
-    if (isMock) {
       return {
         id: paymentId,
         status: 'approved',
-        external_reference: `RES_MOCK_${Date.now()}`,
+        external_reference: externalRef,
         transaction_amount: 10,
       };
     }

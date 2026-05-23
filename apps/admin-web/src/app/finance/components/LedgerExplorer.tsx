@@ -1,12 +1,12 @@
 'use client';
 
-import React from 'react';
-import { 
-  ArrowUpCircle, 
-  ArrowDownCircle, 
+import React, { useState } from 'react';
+import {
+  ArrowUpCircle,
+  ArrowDownCircle,
+  ArrowRight,
   Search,
   Filter,
-  Download
 } from 'lucide-react';
 import clsx from 'clsx';
 

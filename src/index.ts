@@ -8,7 +8,11 @@ import { ExpressAdapter } from '@bull-board/express';
 import client from 'prom-client';
 
 import paymentRoutes from './routes/paymentRoutes';
-import { 
+import authRoutes from './routes/authRoutes';
+import whatsappQrRoutes from './routes/whatsappQr';
+import testRoutes from './routes/testRoutes';
+import { adminAuthMiddleware } from './middleware/adminAuth';
+import {
   gameStartQueue, ballDrawQueue, whatsappInboundQueue, 
   notifyHighQueue, notifyBulkQueue, paymentConfirmationQueue, 
   reservationExpireQueue, fraudQueue, renderQueue, mediaCleanupQueue,
@@ -28,6 +32,7 @@ import adminFinanceRoutes from './routes/adminFinance';
 import { HealthCheck } from './infra/HealthCheck';
 import { WorkerFactory } from './runtime/WorkerFactory';
 import { Tracer } from './infra/observability/Tracer';
+import { WhatsAppService } from './services/WhatsAppService';
 
 dotenv.config();
 
@@ -89,18 +94,17 @@ app.get('/metrics', async (req, res) => {
 
 app.use('/api/payments', paymentRoutes);
 
-// Mock Admin Auth Middleware (For testing Phase 13)
-app.use('/api/admin', (req, res, next) => {
-  // In a real app, this would verify a JWT and fetch the admin user from DB
-  (req as any).admin = { 
-    id: 1, 
-    username: 'superadmin', 
-    role: 'SUPER_ADMIN',
-    operatorId: 'admin-1',
-    operatorName: 'superadmin'
-  };
-  next();
-});
+// WhatsApp QR (public)
+app.use('/whatsapp', whatsappQrRoutes);
+
+// Test endpoints (development)
+app.use('/test', testRoutes);
+
+// Auth routes (public)
+app.use('/api/admin/auth', authRoutes);
+
+// Admin routes (protected by JWT)
+app.use('/api/admin', adminAuthMiddleware);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/metrics', adminMetricsRoutes);
 app.use('/api/admin/finance', adminFinanceRoutes);
@@ -119,12 +123,15 @@ AdminRealtimeGateway.initialize();
 
 httpServer.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
-  
+
   // Initialize Domain Event Listeners
   EventSubscribers.initialize();
 
   // Selective Worker Booting
   await WorkerFactory.boot();
+
+  // Initialize WhatsApp Service (hooks inbound message handlers)
+  WhatsAppService.initialize();
 
   // Initialize Provider
   try {

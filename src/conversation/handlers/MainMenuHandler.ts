@@ -12,11 +12,12 @@ export class MainMenuHandler extends BaseHandler {
     
     switch (intent) {
       case 'VIEW_ROOMS':
+      case 'BUY_CARDS':
         return {
           nextState: 'ROOM_BROWSER',
           message: Templates.ROOM_LIST([{ name: 'Sala Premium', card_price: 500 }])
         };
-      
+
       case 'VIEW_PROFILE':
         return {
           message: `👤 *TU PERFIL*\n\nNúmero: ${session.userId}\nSaldo: $0.00\nCartones activos: 0`

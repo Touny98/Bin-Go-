@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
-import { 
+import { api } from '@/lib/api';
+import {
   CheckCircle, 
   XCircle, 
   AlertCircle, 
@@ -15,8 +15,6 @@ import {
   Loader2
 } from 'lucide-react';
 import clsx from 'clsx';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export interface PayoutRequest {
   id: string;
@@ -48,7 +46,7 @@ export const PayoutReviewQueue: React.FC = () => {
   const handleLock = async (id: string) => {
     setLockingId(id);
     try {
-      await axios.post(`${API_URL}/api/admin/finance/lock/${id}`);
+      await api.post(`/api/admin/finance/lock/${id}`);
       // Lock will be updated via WebSocket, but we can also refetch/update locally
     } catch (err: any) {
       if (err.response?.status === 409) {
@@ -62,7 +60,7 @@ export const PayoutReviewQueue: React.FC = () => {
   const handleUnlock = async (id: string) => {
     setLockingId(id);
     try {
-      await axios.delete(`${API_URL}/api/admin/finance/lock/${id}`);
+      await api.delete(`/api/admin/finance/lock/${id}`);
     } finally {
       setLockingId(null);
     }
