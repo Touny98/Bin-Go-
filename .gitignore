@@ -55,6 +55,9 @@ backups/
 .wwebjs_auth/
 .wwebjs_cache/
 
+# Claude Code local settings (can contain tokens/permissions)
+.claude/settings.local.json
+
 # Archivos del sistema operativo y editores
 .DS_Store
 Thumbs.db

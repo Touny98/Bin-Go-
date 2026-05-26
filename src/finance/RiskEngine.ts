@@ -8,7 +8,7 @@ export interface RiskAnalysis {
 }
 
 export class RiskEngine {
-  private static readonly MANUAL_REVIEW_THRESHOLD = 5000;
+  private static readonly MANUAL_REVIEW_THRESHOLD = 50000;
 
   /**
    * Performs risk analysis on a payout request
@@ -35,7 +35,7 @@ export class RiskEngine {
     }
 
     // 3. New user check
-    const userStats = await query('SELECT created_at FROM player_stats WHERE user_id = $1', [userId]);
+    const userStats = await query('SELECT user_id FROM player_stats WHERE user_id = $1', [userId]);
     // Simplified check: if no stats yet, it's risky
     if (userStats.rows.length === 0) {
       score += 20;

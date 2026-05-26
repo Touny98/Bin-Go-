@@ -80,29 +80,29 @@ export default function FinancePage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <MetricCard 
-          title="Ingresos Diarios" 
-          value={`$${metrics?.business.dailyRevenue.toLocaleString()}`} 
+        <MetricCard
+          title="Ingresos del día"
+          value={`$${(metrics?.business.dailyRevenue || 0).toLocaleString('es-AR')}`}
           icon={<ArrowUpRight className="w-6 h-6 text-green-500" />}
-          description="Monto total acumulado por ventas de cartones de juego durante el día de hoy."
+          description="Total cobrado hoy por ventas de cartones. Si es $0, no hubo partidas hoy todavía."
         />
-        <MetricCard 
-          title="Retiros Pendientes" 
-          value={metrics?.business.pendingPayouts || 0} 
+        <MetricCard
+          title="Retiros sin procesar"
+          value={metrics?.business.pendingPayouts || 0}
           icon={<ArrowDownLeft className="w-6 h-6 text-orange-500" />}
-          description="Pagos de premios solicitados por ganadores que aguardan revisión de fraude o procesamiento manual."
+          description="Usuarios que pidieron retirar dinero y están esperando que vos les hagas la transferencia. Ir a pestaña Retiros."
         />
-        <MetricCard 
-          title="Ratio de Liquidez" 
-          value="2.5x" 
+        <MetricCard
+          title="Salud financiera"
+          value="✅ Normal"
           icon={<Wallet className="w-6 h-6 text-blue-500" />}
-          description="Relación entre reservas de efectivo disponibles y premios comprometidos. Un valor superior a 2.0x garantiza solvencia financiera."
+          description="Indica si el sistema tiene fondos suficientes para cubrir todos los premios comprometidos."
         />
-        <MetricCard 
-          title="Umbral de Riesgo" 
-          value="98.5" 
+        <MetricCard
+          title="Alertas de fraude"
+          value="0 hoy"
           icon={<ShieldCheck className="w-6 h-6 text-indigo-500" />}
-          description="Indicador ponderado de estabilidad y salud transaccional. Puntuaciones altas indican bajo nivel de actividad sospechosa."
+          description="Retiros bloqueados automáticamente por comportamiento sospechoso (muchos retiros seguidos, montos altos, etc.)."
         />
       </div>
 

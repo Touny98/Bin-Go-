@@ -4,6 +4,9 @@ import { MainMenuHandler } from './handlers/MainMenuHandler';
 import { RoomBrowserHandler } from './handlers/RoomBrowserHandler';
 import { PurchaseHandler } from './handlers/PurchaseHandler';
 import { PaymentWaitHandler } from './handlers/PaymentWaitHandler';
+import { CollectNameHandler } from './handlers/CollectNameHandler';
+import { ProfileMenuHandler } from './handlers/ProfileMenuHandler';
+import { WithdrawalHandler } from './handlers/WithdrawalHandler';
 import { BaseHandler } from './handlers/BaseHandler';
 import { logger } from '../utils/logger';
 import { notifyHighQueue, connection } from '../queue';
@@ -17,6 +20,9 @@ export class ConversationOrchestrator {
     'ROOM_BROWSER': new RoomBrowserHandler(),
     'PURCHASING': new PurchaseHandler(),
     'WAITING_PAYMENT': new PaymentWaitHandler(),
+    'COLLECTING_NAME': new CollectNameHandler(),
+    'PROFILE_MENU': new ProfileMenuHandler(),
+    'WITHDRAWAL': new WithdrawalHandler(),
   };
 
   /**
@@ -37,6 +43,13 @@ export class ConversationOrchestrator {
       // 2. Get or Create Session
       const session = await SessionStore.get(userId);
       const stateBefore = session.state;
+
+      // 2b. Keep whatsapp_jid fresh in DB (fixes @lid vs @c.us for outbound notifications)
+      const phone = userId.replace(/@c\.us$/, '').replace(/@lid$/, '');
+      query(
+        `UPDATE users SET whatsapp_jid = $1 WHERE phone_number = $2`,
+        [userId, phone]
+      ).catch(() => { /* non-critical */ });
 
       // 3. Identify Intent
       const intent = IntentRouter.route(input);

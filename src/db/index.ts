@@ -18,6 +18,7 @@ export const initDb = async () => {
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         phone_number VARCHAR(20) UNIQUE NOT NULL,
+        name VARCHAR(100),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -25,7 +26,19 @@ export const initDb = async () => {
         id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         card_price DECIMAL(10,2) NOT NULL,
-        jackpot_percentage DECIMAL(5,2) DEFAULT 0.05,
+        platform_fee DECIMAL(10,2) NOT NULL DEFAULT 0,
+        jackpot_fee DECIMAL(10,2) NOT NULL DEFAULT 0,
+        jackpot_percentage DECIMAL(5,2) DEFAULT 0.70,
+        game_mode VARCHAR(30) NOT NULL DEFAULT 'SALE_O_SALE',
+        max_balls SMALLINT NOT NULL DEFAULT 75,
+        tie_rule VARCHAR(20) NOT NULL DEFAULT 'SPLIT',
+        accumulated_jackpot DECIMAL(12,2) NOT NULL DEFAULT 0,
+        interval_minutes INTEGER DEFAULT NULL,
+        daily_times JSONB DEFAULT '[]',
+        weekly_day SMALLINT DEFAULT NULL,
+        weekly_time VARCHAR(5) DEFAULT NULL,
+        is_featured BOOLEAN DEFAULT FALSE,
+        description TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -37,11 +50,66 @@ export const initDb = async () => {
         drawn_numbers JSONB DEFAULT '[]',
         pot_amount DECIMAL(10,2) DEFAULT 0.00,
         jackpot_amount DECIMAL(10,2) DEFAULT 0.00,
+        jackpot_paid DECIMAL(12,2) DEFAULT 0,
+        game_mode VARCHAR(30) DEFAULT 'SALE_O_SALE',
+        max_balls SMALLINT DEFAULT 75,
+        finish_reason VARCHAR(30) DEFAULT NULL,
+        rollover_weeks SMALLINT DEFAULT 0,
         winner_id INTEGER REFERENCES users(id),
         winner_locked_at TIMESTAMP,
         version INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Migrations for existing installations (idempotent)
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS platform_fee DECIMAL(10,2) NOT NULL DEFAULT 0;
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS jackpot_fee DECIMAL(10,2) NOT NULL DEFAULT 0;
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS game_mode VARCHAR(30) NOT NULL DEFAULT 'SALE_O_SALE';
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS max_balls SMALLINT NOT NULL DEFAULT 75;
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS tie_rule VARCHAR(20) NOT NULL DEFAULT 'SPLIT';
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS accumulated_jackpot DECIMAL(12,2) NOT NULL DEFAULT 0;
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS interval_minutes INTEGER DEFAULT NULL;
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS daily_times JSONB DEFAULT '[]';
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS weekly_day SMALLINT DEFAULT NULL;
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS weekly_time VARCHAR(5) DEFAULT NULL;
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE;
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS description TEXT;
+
+      ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS jackpot_paid DECIMAL(12,2) DEFAULT 0;
+      ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS game_mode VARCHAR(30) DEFAULT 'SALE_O_SALE';
+      ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS max_balls SMALLINT DEFAULT 75;
+      ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS finish_reason VARCHAR(30) DEFAULT NULL;
+      ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS rollover_weeks SMALLINT DEFAULT 0;
+      ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT FALSE;
+
+      -- Migrations for payout_requests
+      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS destination VARCHAR(200);
+      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(100);
+      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS risk_score INTEGER DEFAULT 0;
+      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS risk_notes TEXT;
+      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS provider_tx_id VARCHAR(100);
+      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS fee_amount DECIMAL(12,2) DEFAULT 0;
+
+      -- Migrations for users table
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(100);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_jid VARCHAR(60);
+
+      CREATE TABLE IF NOT EXISTS jackpot_audit (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES game_sessions(id),
+        room_id INTEGER NOT NULL,
+        event_type VARCHAR(30) NOT NULL,
+        amount DECIMAL(12,2) NOT NULL,
+        card_id INTEGER REFERENCES cards(id),
+        user_id INTEGER REFERENCES users(id),
+        balance_before DECIMAL(12,2),
+        balance_after DECIMAL(12,2),
+        week_number SMALLINT,
+        metadata JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS cards (
@@ -177,6 +245,7 @@ export const initDb = async () => {
         status VARCHAR(20) DEFAULT 'REQUESTED',
         provider VARCHAR(30),
         provider_tx_id VARCHAR(100),
+        destination VARCHAR(200),
         risk_score INTEGER DEFAULT 0,
         risk_notes TEXT,
         idempotency_key VARCHAR(100) UNIQUE,
@@ -209,6 +278,10 @@ export const initDb = async () => {
         value JSONB,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE INDEX IF NOT EXISTS idx_jackpot_audit_session ON jackpot_audit(session_id);
+      CREATE INDEX IF NOT EXISTS idx_jackpot_audit_room    ON jackpot_audit(room_id);
+      CREATE INDEX IF NOT EXISTS idx_game_sessions_room_status ON game_sessions(room_id, status);
     `);
     console.log('Database schema initialized.');
   } catch (error) {

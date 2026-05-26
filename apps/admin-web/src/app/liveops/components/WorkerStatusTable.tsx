@@ -32,23 +32,23 @@ export const WorkerStatusTable: React.FC<WorkerStatusTableProps> = ({ workers })
       <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
           <Activity className="w-5 h-5 text-indigo-500" />
-          Worker Status
+          Estado de Procesos en Segundo Plano
         </h3>
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {workers.length} active workers
+          {workers.length} proceso{workers.length !== 1 ? 's' : ''} activo{workers.length !== 1 ? 's' : ''}
         </span>
       </div>
-      
+
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-900/50">
-              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Worker Type</th>
-              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Uptime</th>
-              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right">Throughput</th>
-              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right">Lag</th>
-              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right">Memory</th>
+              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Proceso</th>
+              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Estado</th>
+              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tiempo activo</th>
+              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right">Velocidad</th>
+              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right">Demora</th>
+              <th className="px-6 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right">Memoria</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -73,7 +73,7 @@ export const WorkerStatusTable: React.FC<WorkerStatusTableProps> = ({ workers })
                       worker.health === 'DEGRADED' ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400" :
                       "bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400"
                     )}>
-                      {worker.health}
+                      {worker.health === 'HEALTHY' ? 'Activo' : worker.health === 'DEGRADED' ? 'Degradado' : 'Caído'}
                     </span>
                   </div>
                 </td>
@@ -85,7 +85,7 @@ export const WorkerStatusTable: React.FC<WorkerStatusTableProps> = ({ workers })
                 </td>
                 <td className="px-6 py-4 text-right">
                   <span className="text-sm font-mono text-gray-700 dark:text-gray-200">
-                    {worker.jobsPerSec.toFixed(1)} <span className="text-[10px] text-gray-400">j/s</span>
+                    {worker.jobsPerSec.toFixed(1)} <span className="text-[10px] text-gray-400">tareas/s</span>
                   </span>
                 </td>
                 <td className="px-6 py-4 text-right">
@@ -95,6 +95,9 @@ export const WorkerStatusTable: React.FC<WorkerStatusTableProps> = ({ workers })
                   )}>
                     {worker.queueLag} <span className="text-[10px] text-gray-400">ms</span>
                   </span>
+                  {worker.queueLag > 100 && (
+                    <p className="text-[10px] text-red-400 mt-0.5">demora alta</p>
+                  )}
                 </td>
                 <td className="px-6 py-4 text-right">
                   <span className="text-sm font-mono text-gray-700 dark:text-gray-200">

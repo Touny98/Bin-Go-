@@ -12,7 +12,7 @@ export class PurchaseHandler extends BaseHandler {
     rawInput: string
   ): Promise<HandlerResponse> {
     
-    const { selectedRoomId, price, pendingQuantity } = session.context;
+    const { selectedRoomId, price, pendingQuantity, scheduledAt, roomName } = session.context;
 
     // 1. If we are in the quantity selection phase
     const quantity = parseInt(rawInput);
@@ -28,7 +28,7 @@ export class PurchaseHandler extends BaseHandler {
     if (intent === 'CONFIRM' && pendingQuantity) {
       try {
         const mpPreference = await CardReservationService.reserveCards(
-          parseInt(session.userId), // Simplification for user_id mapping
+          session.userId,
           selectedRoomId,
           pendingQuantity,
           price
@@ -36,6 +36,7 @@ export class PurchaseHandler extends BaseHandler {
 
         return {
           nextState: 'WAITING_PAYMENT',
+          nextContext: { paymentUrl: mpPreference.init_point },
           message: Templates.PAYMENT_LINK(mpPreference.init_point)
         };
       } catch (error: any) {

@@ -132,11 +132,48 @@ export class BingoEngine {
     return card;
   }
   /**
+   * Returns card dimensions and max number for a given game mode.
+   */
+  static getCardDimensions(gameMode: string): { cols: number; rows: number; maxNumber: number } {
+    if (gameMode === 'ACCUMULATIVE') return { cols: 5, rows: 4, maxNumber: 99 };
+    return { cols: 4, rows: 4, maxNumber: 99 }; // SALE_O_SALE y diario → cartón 4x4, números 1-99
+  }
+
+  /**
+   * Generates a simple cols x rows card with unique random numbers from 1..maxNumber.
+   */
+  static generateSimpleCard(cols: number, rows: number, maxNumber: number): (number | null)[][] {
+    const total = cols * rows;
+    const pool = Array.from({ length: maxNumber }, (_, i) => i + 1);
+
+    // Doble Fisher-Yates con semilla temporal para máxima aleatoriedad
+    const shuffle = (arr: number[]) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+    };
+    shuffle(pool);
+    shuffle(pool); // segunda pasada para romper cualquier patrón residual
+
+    const selected = pool.slice(0, total).sort((a, b) => a - b);
+    const card: (number | null)[][] = [];
+    for (let r = 0; r < rows; r++) {
+      card.push(selected.slice(r * cols, (r + 1) * cols));
+    }
+    return card;
+  }
+
+  /**
    * Generates a randomized list of 90 numbers for extraction
    */
-  static generateDrawSequence(seedStr?: string): number[] {
-    const sequence = Array.from({ length: 90 }, (_, i) => i + 1);
-    
+  /**
+   * Generates a shuffled draw sequence from 1 to maxNumber.
+   * Default 90 for standard bingo, 45 for SALE_O_SALE, 75 for ACCUMULATIVE.
+   */
+  static generateDrawSequence(seedStr?: string, maxNumber = 99): number[] {
+    const sequence = Array.from({ length: maxNumber }, (_, i) => i + 1);
+
     if (seedStr) {
       // Deterministic Fisher-Yates using Mulberry32 seeded PRNG
       let seed = Array.from(seedStr).reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -146,7 +183,6 @@ export class BingoEngine {
         t ^= t + Math.imul(t ^ t >>> 7, t | 61);
         return ((t ^ t >>> 14) >>> 0) / 4294967296;
       };
-
       for (let i = sequence.length - 1; i > 0; i--) {
         const j = Math.floor(random() * (i + 1));
         [sequence[i], sequence[j]] = [sequence[j], sequence[i]];
@@ -176,31 +212,34 @@ export class BingoEngine {
    * @param drawnNumbers Set or Array of drawn numbers
    */
   static checkLine(card: (number | null)[][], drawnNumbers: Set<number>): boolean {
-    for (let r = 0; r < 3; r++) {
+    const rows = card.length;
+    const cols = card[0]?.length ?? 0;
+    for (let r = 0; r < rows; r++) {
       let isLine = true;
-      for (let c = 0; c < 9; c++) {
+      let hasNumbers = false;
+      for (let c = 0; c < cols; c++) {
         const num = card[r][c];
-        if (num !== null && !drawnNumbers.has(num)) {
-          isLine = false;
-          break;
+        if (num !== null) {
+          hasNumbers = true;
+          if (!drawnNumbers.has(num)) {
+            isLine = false;
+            break;
+          }
         }
       }
-      // If we found a line and it actually has numbers (should be 5)
-      if (isLine) {
-        return true;
-      }
+      if (isLine && hasNumbers) return true;
     }
     return false;
   }
 
   /**
-   * Validates if a card has won 'Bingo' (all 15 numbers drawn)
-   * @param card The 2D array representation of the card
-   * @param drawnNumbers Set or Array of drawn numbers
+   * Validates if a card has won 'Bingo' (all numbers drawn)
    */
   static checkBingo(card: (number | null)[][], drawnNumbers: Set<number>): boolean {
-    for (let r = 0; r < 3; r++) {
-      for (let c = 0; c < 9; c++) {
+    const rows = card.length;
+    const cols = card[0]?.length ?? 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
         const num = card[r][c];
         if (num !== null && !drawnNumbers.has(num)) {
           return false;

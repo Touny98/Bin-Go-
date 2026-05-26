@@ -24,8 +24,11 @@ export class PaymentWaitHandler extends BaseHandler {
     }
 
     // For any other input, remind user to complete payment
+    const paymentUrl = session.context?.paymentUrl;
     return {
-      message: `⏳ Estamos esperando la confirmación de tu pago.\n\nSi ya pagaste, por favor espera a que se procese (puede tomar unos segundos).\n\nSi quieres cancelar, escribe: *NO* o *MENU`
+      message: paymentUrl
+        ? `⏳ Tu pago aún no fue confirmado.\n\nPodés completarlo acá: ${paymentUrl}\n\nSi querés cancelar escribí *NO* o *MENU*.`
+        : `⏳ Estamos esperando la confirmación de tu pago.\n\nSi querés cancelar escribí *NO* o *MENU*.`
     };
   }
 }

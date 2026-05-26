@@ -92,7 +92,7 @@ export class WhatsAppWebProvider implements WhatsAppProvider {
     this.client.on('message', async (message: any) => {
       if (message.from && message.from.endsWith('@g.us')) return;
       
-      const from = message.from ? message.from.replace('@c.us', '') : 'unknown';
+      const from = message.from ? message.from : 'unknown';
       const input = message.body || '';
 
       logger.info({ from, input }, '[WhatsAppWebProvider] Inbound message received, enqueuing...');

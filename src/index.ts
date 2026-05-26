@@ -33,6 +33,7 @@ import { HealthCheck } from './infra/HealthCheck';
 import { WorkerFactory } from './runtime/WorkerFactory';
 import { Tracer } from './infra/observability/Tracer';
 import { WhatsAppService } from './services/WhatsAppService';
+import { SessionSchedulerService } from './services/SessionSchedulerService';
 
 dotenv.config();
 
@@ -132,6 +133,14 @@ httpServer.listen(PORT, async () => {
 
   // Initialize WhatsApp Service (hooks inbound message handlers)
   WhatsAppService.initialize();
+
+  // Start Session Scheduler (auto-create sessions based on room schedules)
+  SessionSchedulerService.start();
+  SessionSchedulerService.startReminderCron();
+  // Recover any existing CREATED sessions that never got a gameStart job
+  SessionSchedulerService.recoverPendingSessions().catch(e =>
+    console.error('[Startup] recoverPendingSessions failed:', e.message)
+  );
 
   // Initialize Provider
   try {

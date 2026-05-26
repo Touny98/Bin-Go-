@@ -20,6 +20,7 @@ export class WorkerFactory {
     }
 
     if (mode === 'ALL' || mode === 'GAME') {
+      await import('../workers/GameStartWorker');
       await import('../workers/BallDrawWorker');
     }
 

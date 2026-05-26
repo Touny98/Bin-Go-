@@ -127,11 +127,14 @@ export class MetricsAggregationService {
       logger.warn('Failed to compute pending payouts');
     }
 
-    // Presence (online users) – placeholder
+    // Presence (online users) – active card holders in live sessions
     let onlineUsers = 0;
     try {
       const onlineRes = await query(
-        "SELECT COUNT(DISTINCT user_id) FROM game_sessions WHERE status IN ('READY','IN_PROGRESS')",
+        `SELECT COUNT(DISTINCT c.user_id)
+         FROM cards c
+         JOIN game_sessions gs ON c.game_session_id = gs.id
+         WHERE gs.status IN ('READY','IN_PROGRESS') AND c.status = 'active'`,
       );
       onlineUsers = parseInt(onlineRes.rows[0]?.count || '0');
     } catch (e) {

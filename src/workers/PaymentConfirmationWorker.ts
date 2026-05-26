@@ -26,8 +26,8 @@ export const paymentConfirmationWorker = new Worker('payment-confirmation-queue'
       if (success) {
         logger.info({ paymentId, externalRef }, `[PaymentConfirmationWorker] Payment successfully applied to reservation`);
 
-        // Formato externalRef: RES_timestamp_userId_gameId
-        // userId puede ser número puro (5511987654321) o incluir @c.us
+        // Formato externalRef: RES_timestamp_jidOrPhone_gameId
+        // parts[2] puede ser '173650393178254@lid', '173650393178254@c.us', o solo el número
         const parts = externalRef.split('_');
         if (parts.length < 4) {
           logger.error({ externalRef }, '[PaymentConfirmationWorker] Formato de externalRef inválido');
@@ -37,12 +37,26 @@ export const paymentConfirmationWorker = new Worker('payment-confirmation-queue'
         const rawUserId = parts[2];
         const gameId = parseInt(parts[3]);
 
-        // El userId en sesión tiene sufijo @c.us; el externalRef solo guarda el número
-        const sessionUserId = rawUserId.includes('@') ? rawUserId : `${rawUserId}@c.us`;
-        // chatId para enviar WhatsApp
-        const chatId = rawUserId.includes('@') ? rawUserId : `${rawUserId}@c.us`;
+        // rawUserId may contain full JID (new) or just phone number (legacy)
+        const phoneStr = rawUserId.replace(/@c\.us$/, '').replace(/@lid$/, '');
 
-        logger.info({ rawUserId, sessionUserId }, `[PaymentConfirmationWorker] Notificando usuario`);
+        // Look up whatsapp_jid from DB for reliable delivery
+        let sessionUserId: string;
+        let chatId: string;
+        try {
+          const jidRes = await query(
+            `SELECT whatsapp_jid FROM users WHERE phone_number = $1`,
+            [phoneStr]
+          );
+          const jid = jidRes.rows[0]?.whatsapp_jid;
+          sessionUserId = jid || (rawUserId.includes('@') ? rawUserId : `${rawUserId}@c.us`);
+          chatId = sessionUserId;
+        } catch (e) {
+          sessionUserId = rawUserId.includes('@') ? rawUserId : `${rawUserId}@c.us`;
+          chatId = sessionUserId;
+        }
+
+        logger.info({ phoneStr, chatId }, `[PaymentConfirmationWorker] Notificando usuario`);
 
         // Contar cartones confirmados para este externalRef
         let quantity = 1;
