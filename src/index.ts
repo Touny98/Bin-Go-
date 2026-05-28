@@ -11,15 +11,17 @@ import paymentRoutes from './routes/paymentRoutes';
 import authRoutes from './routes/authRoutes';
 import whatsappQrRoutes from './routes/whatsappQr';
 import testRoutes from './routes/testRoutes';
+import metaWebhookRoutes from './routes/metaWebhook';
 import { adminAuthMiddleware } from './middleware/adminAuth';
 import {
-  gameStartQueue, ballDrawQueue, whatsappInboundQueue, 
-  notifyHighQueue, notifyBulkQueue, paymentConfirmationQueue, 
+  gameStartQueue, ballDrawQueue, whatsappInboundQueue,
+  notifyHighQueue, notifyBulkQueue, paymentConfirmationQueue,
   reservationExpireQueue, fraudQueue, renderQueue, mediaCleanupQueue,
-  campaignQueue, payoutQueue, reconciliationQueue
+  campaignQueue, payoutQueue, reconciliationQueue,
+  trucoMatchmakingQueue, trucoTurnTimeoutQueue, trucoPayoutQueue
 } from './queue';
 import { EventSubscribers } from './notifications/EventSubscribers';
-import { whatsAppProvider } from './notifications/providers/WhatsAppWebProvider';
+import { whatsAppProvider } from './notifications/providers/BaileysProvider';
 import { SocketServer } from './realtime/SocketServer';
 import { RealtimeGateway } from './realtime/RealtimeGateway';
 import { ReplayService } from './realtime/ReplayService';
@@ -29,6 +31,8 @@ import { createServer } from 'http';
 import adminRoutes from './routes/adminRoutes';
 import adminMetricsRoutes from './routes/adminMetrics';
 import adminFinanceRoutes from './routes/adminFinance';
+import adminTrucoRoutes from './routes/adminTruco';
+import { initDb } from './db';
 import { HealthCheck } from './infra/HealthCheck';
 import { WorkerFactory } from './runtime/WorkerFactory';
 import { Tracer } from './infra/observability/Tracer';
@@ -70,7 +74,10 @@ createBullBoard({
     new BullMQAdapter(fraudQueue),
     new BullMQAdapter(campaignQueue),
     new BullMQAdapter(payoutQueue),
-    new BullMQAdapter(reconciliationQueue)
+    new BullMQAdapter(reconciliationQueue),
+    new BullMQAdapter(trucoMatchmakingQueue),
+    new BullMQAdapter(trucoTurnTimeoutQueue),
+    new BullMQAdapter(trucoPayoutQueue),
   ],
   serverAdapter: serverAdapter,
 });
@@ -98,6 +105,9 @@ app.use('/api/payments', paymentRoutes);
 // WhatsApp QR (public)
 app.use('/whatsapp', whatsappQrRoutes);
 
+// Meta Cloud API webhook (público — Meta no envía auth header)
+app.use('/webhook/meta', metaWebhookRoutes);
+
 // Test endpoints (development)
 app.use('/test', testRoutes);
 
@@ -109,6 +119,7 @@ app.use('/api/admin', adminAuthMiddleware);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/metrics', adminMetricsRoutes);
 app.use('/api/admin/finance', adminFinanceRoutes);
+app.use('/api/admin/truco', adminTrucoRoutes);
 
 app.get('/', (req, res) => {
   res.send('Bingo! API is running. WhatsApp is connected via QR.');
@@ -124,6 +135,9 @@ AdminRealtimeGateway.initialize();
 
 httpServer.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+
+  // Run DB migrations (idempotent)
+  await initDb();
 
   // Initialize Domain Event Listeners
   EventSubscribers.initialize();
