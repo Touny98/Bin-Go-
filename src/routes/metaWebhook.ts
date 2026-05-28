@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { whatsappInboundQueue } from '../queue';
+import { metaCloudProvider } from '../notifications/providers/MetaCloudProvider';
 
 const router = Router();
 
@@ -43,7 +43,7 @@ router.post('/', async (req: Request, res: Response) => {
         if (!input) continue;
 
         console.log(`[MetaWebhook] Mensaje de ${from}: ${input}`);
-        await whatsappInboundQueue.add('inbound_message', { from, input });
+        await metaCloudProvider.handleIncoming(from, input);
       }
 
       // Loggear actualizaciones de estado (enviado, entregado, leído) sin bloquear

@@ -21,7 +21,7 @@ import {
   trucoMatchmakingQueue, trucoTurnTimeoutQueue, trucoPayoutQueue
 } from './queue';
 import { EventSubscribers } from './notifications/EventSubscribers';
-import { whatsAppProvider } from './notifications/providers/BaileysProvider';
+import { metaCloudProvider as whatsAppProvider } from './notifications/providers/MetaCloudProvider';
 import { SocketServer } from './realtime/SocketServer';
 import { RealtimeGateway } from './realtime/RealtimeGateway';
 import { ReplayService } from './realtime/ReplayService';

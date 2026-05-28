@@ -1,4 +1,4 @@
-import { whatsAppProvider } from '../notifications/providers/WhatsAppWebProvider';
+import { metaCloudProvider as whatsAppProvider } from '../notifications/providers/MetaCloudProvider';
 import { analyticsQueue } from '../queue';
 import { logger } from '../utils/logger';
 
