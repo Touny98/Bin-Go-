@@ -6,6 +6,35 @@ import { CardReservationService } from '../../domain/CardReservationService';
 import { logger } from '../../utils/logger';
 import { query } from '../../db';
 
+function buildBingoMenuButtons(): Pick<HandlerResponse, 'message' | 'buttons'> {
+  const text = Templates.BINGO_MAIN_MENU();
+  return {
+    message: text,
+    buttons: {
+      text,
+      buttons: [
+        { id: 'bingo_rooms',   label: '🎡 Ver Salas'        },
+        { id: 'bingo_profile', label: '👤 Mi Perfil'         },
+        { id: 'bingo_switch',  label: '🔄 Cambiar de juego'  },
+      ],
+      footer: 'TIMBA — tu plataforma de juegos',
+    },
+  };
+}
+
+function buildBingoMenuFollowUp() {
+  const text = Templates.BINGO_MAIN_MENU();
+  return {
+    text,
+    buttons: [
+      { id: 'bingo_rooms',   label: '🎡 Ver Salas'        },
+      { id: 'bingo_profile', label: '👤 Mi Perfil'         },
+      { id: 'bingo_switch',  label: '🔄 Cambiar de juego'  },
+    ],
+    footer: 'TIMBA — tu plataforma de juegos',
+  };
+}
+
 export class PurchaseHandler extends BaseHandler {
   public async handle(
     session: UserSession,
@@ -17,34 +46,14 @@ export class PurchaseHandler extends BaseHandler {
     const phone = String(session.userId).replace(/@c\.us$/, '').replace(/@lid$/, '');
 
     if (intent === 'CANCEL' || intent === 'GOTO_MENU') {
-      const bingoMenuText = Templates.BINGO_MAIN_MENU();
-      return {
-        nextState: 'BINGO_MENU',
-        nextContext: {},
-        message: bingoMenuText,
-        list: {
-          text: bingoMenuText,
-          buttonLabel: 'Elegir opción',
-          title: 'BinGo! 🎰',
-          footer: 'BinGo! — tu plataforma de juegos',
-          sections: [{
-            title: '¿Qué querés hacer?',
-            rows: [
-              { id: 'bingo_rooms',   title: '1. Ver Salas Disponibles 🎰',  description: 'Explorá las salas activas y próximas'      },
-              { id: 'bingo_buy',     title: '2. Comprar Cartones 🎟️',       description: 'Comprá cartones para la próxima sala'      },
-              { id: 'bingo_profile', title: '3. Ver mi Perfil 👤',           description: 'Tu saldo, cartones activos y retiros'      },
-              { id: 'bingo_switch',  title: '4. Cambiar de juego 🔄',       description: 'Volver al menú principal de la plataforma' },
-            ],
-          }],
-        },
-      };
+      return { nextState: 'BINGO_MENU', nextContext: {}, ...buildBingoMenuButtons() };
     }
 
     // Paso 3: elección de método de pago
     if (pendingPaymentChoice && pendingQuantity) {
       const normalized = rawInput.trim().toUpperCase();
-      const isWallet = normalized === '1' || normalized === 'WALLET' || normalized === 'SALDO';
-      const isMp     = normalized === '2' || normalized === 'MP'     || normalized === 'MERCADOPAGO';
+      const isWallet = normalized === '1' || normalized === 'WALLET' || normalized === 'SALDO' || normalized === 'PAY_WALLET';
+      const isMp     = normalized === '2' || normalized === 'MP'     || normalized === 'MERCADOPAGO' || normalized === 'PAY_MP';
 
       if (isWallet) {
         try {
@@ -54,27 +63,14 @@ export class PurchaseHandler extends BaseHandler {
           const newBalance = parseFloat(walletRes.rows[0]?.real_balance ?? '0');
           const successText = Templates.WALLET_PAYMENT_SUCCESS({ quantity: pendingQuantity, total, roomName, newBalance });
           return {
-            nextState: 'MAIN_MENU',
+            nextState: 'BINGO_MENU',
             nextContext: {},
             message: successText,
-            list: {
-              text: successText,
-              buttonLabel: '¿Qué hacemos?',
-              title: '¡Cartones comprados! 🎉',
-              footer: 'BinGo! 🎰',
-              sections: [{
-                title: '¿Qué querés hacer ahora?',
-                rows: [
-                  { id: 'bingo_rooms',   title: '🎰 Comprar más cartones', description: 'Ver otras salas disponibles' },
-                  { id: 'bingo_profile', title: '👤 Ver mi perfil',         description: 'Tu saldo y cartones activos' },
-                  { id: '0',             title: '🏠 Menú principal',        description: 'Volver al inicio'            },
-                ],
-              }],
-            },
+            followUp: buildBingoMenuFollowUp(),
           };
         } catch (error: any) {
           logger.error({ error: error.message }, '[PurchaseHandler] Wallet payment failed');
-          return { nextState: 'MAIN_MENU', nextContext: {}, message: `❌ No se pudo procesar el pago con saldo: ${error.message}` };
+          return { nextState: 'BINGO_MENU', nextContext: {}, message: `❌ No se pudo procesar el pago con saldo: ${error.message}` };
         }
       }
 
@@ -89,7 +85,7 @@ export class PurchaseHandler extends BaseHandler {
             buttons: {
               text: paymentText,
               buttons: [{ id: 'no', label: '❌ Cancelar reserva' }],
-              footer: 'BinGo! 🎰',
+              footer: 'TIMBA 🎡',
             },
           };
         } catch (error: any) {
@@ -104,18 +100,13 @@ export class PurchaseHandler extends BaseHandler {
       const paymentText = Templates.PAYMENT_METHOD_CHOICE({ total, walletBalance: currentBalance });
       return {
         message: paymentText,
-        list: {
+        buttons: {
           text: paymentText,
-          buttonLabel: 'Elegir método',
-          title: 'Método de pago',
-          footer: `Total: ${formatARS(total)} — BinGo! 🎰`,
-          sections: [{
-            title: '¿Cómo querés pagar?',
-            rows: [
-              { id: '1', title: `💰 Con mi saldo (${formatARS(currentBalance)})`, description: 'Instantáneo, sin redireccionamiento' },
-              { id: '2', title: '💳 MercadoPago',                                  description: 'Pagá con tarjeta o dinero en cuenta' },
-            ],
-          }],
+          buttons: [
+            { id: 'pay_wallet', label: `💰 Mi saldo (${formatARS(currentBalance)})` },
+            { id: 'pay_mp',     label: '💳 MercadoPago'                              },
+          ],
+          footer: `Total: ${formatARS(total)} — TIMBA 🎡`,
         },
       };
     }
@@ -132,18 +123,13 @@ export class PurchaseHandler extends BaseHandler {
           return {
             nextContext: { ...session.context, pendingPaymentChoice: true },
             message: paymentText,
-            list: {
+            buttons: {
               text: paymentText,
-              buttonLabel: 'Elegir método',
-              title: 'Método de pago',
-              footer: `Total: ${formatARS(total)} — BinGo! 🎰`,
-              sections: [{
-                title: '¿Cómo querés pagar?',
-                rows: [
-                  { id: '1', title: `💰 Con mi saldo (${formatARS(walletBalance)})`, description: 'Instantáneo, sin redireccionamiento' },
-                  { id: '2', title: '💳 MercadoPago',                                 description: 'Pagá con tarjeta o dinero en cuenta' },
-                ],
-              }],
+              buttons: [
+                { id: 'pay_wallet', label: `💰 Mi saldo (${formatARS(walletBalance)})` },
+                { id: 'pay_mp',     label: '💳 MercadoPago'                              },
+              ],
+              footer: `Total: ${formatARS(total)} — TIMBA 🎡`,
             },
           };
         }
@@ -157,7 +143,7 @@ export class PurchaseHandler extends BaseHandler {
           buttons: {
             text: payText,
             buttons: [{ id: 'no', label: '❌ Cancelar reserva' }],
-            footer: 'BinGo! 🎰',
+            footer: 'TIMBA 🎡',
           },
         };
       } catch (error: any) {
@@ -168,44 +154,40 @@ export class PurchaseHandler extends BaseHandler {
 
     // Paso 1: confirmación de cantidad
     const quantity = parseInt(rawInput);
-    if (!isNaN(quantity) && quantity > 0 && quantity <= 10) {
+    if (!isNaN(quantity) && quantity > 0 && quantity <= 5) {
       const total = quantity * price;
       const confirmText = Templates.PURCHASE_CONFIRMATION({ quantity, total });
       return {
+        nextState: 'PURCHASING',
         nextContext: { pendingQuantity: quantity },
         message: confirmText,
-        list: {
+        buttons: {
           text: confirmText,
-          buttonLabel: 'Confirmar',
-          title: 'Confirmar compra',
-          footer: `Total: ${formatARS(total)} — BinGo! 🎰`,
-          sections: [{
-            title: '¿Confirmás la compra?',
-            rows: [
-              { id: 'si', title: '✅ Sí, comprar', description: `${quantity} cartón${quantity !== 1 ? 'es' : ''} por ${formatARS(total)}` },
-              { id: 'no', title: '❌ Cancelar',    description: 'Volver sin comprar'                                                      },
-            ],
-          }],
+          buttons: [
+            { id: 'si', label: '✅ Confirmar' },
+            { id: 'no', label: '❌ Cancelar'  },
+          ],
+          footer: `Total: ${formatARS(total)} — TIMBA 🎡`,
         },
       };
     }
 
     // Selector inicial de cantidad
     const priceStr = price ? formatARS(price) : '';
-    const quantityText = `🎟️ *${roomName || 'Sala seleccionada'}*\n\n¿Cuántos cartones querés comprar?${priceStr ? ` (${priceStr} c/u)` : ''}\n\n_También podés escribir cualquier número del 1 al 10._`;
+    const quantityText = `🎟️ *${roomName || 'Sala seleccionada'}*\n\n¿Cuántos cartones querés comprar?${priceStr ? ` (${priceStr} c/u)` : ''}`;
     return {
+      nextState: 'PURCHASING',
       message: quantityText,
       list: {
         text: quantityText,
         buttonLabel: 'Elegir cantidad',
-        title: 'Cantidad de cartones',
-        footer: priceStr ? `${priceStr} por cartón — BinGo! 🎰` : 'BinGo! 🎰',
         sections: [{
           title: 'Seleccioná cuántos querés',
           rows: [
             { id: '1', title: '1 cartón',   description: priceStr ? `Total: ${formatARS(price * 1)}` : '' },
             { id: '2', title: '2 cartones', description: priceStr ? `Total: ${formatARS(price * 2)}` : '' },
             { id: '3', title: '3 cartones', description: priceStr ? `Total: ${formatARS(price * 3)}` : '' },
+            { id: '4', title: '4 cartones', description: priceStr ? `Total: ${formatARS(price * 4)}` : '' },
             { id: '5', title: '5 cartones', description: priceStr ? `Total: ${formatARS(price * 5)}` : '' },
           ],
         }],
