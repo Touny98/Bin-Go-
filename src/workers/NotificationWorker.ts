@@ -15,7 +15,7 @@ import { TrucoTrace } from '../domain/truco/TrucoTrace';
 // genéricos) mantienen la entrega directa de siempre.
 const OUTBOUND_LOCK_TTL_MS = parseInt(process.env.TRUCO_OUTBOUND_LOCK_TTL_MS || '15000', 10);
 const OUTSEQ_TTL_MS = parseInt(process.env.TRUCO_OUTSEQ_TTL_MS || String(6 * 60 * 60 * 1000), 10);
-const GATE_RETRY_DELAY_MS = parseInt(process.env.TRUCO_OUTBOUND_GATE_RETRY_MS || '250', 10);
+const GATE_RETRY_DELAY_MS = parseInt(process.env.TRUCO_OUTBOUND_GATE_RETRY_MS || '100', 10);
 const MAX_GATE_RETRIES = parseInt(process.env.TRUCO_OUTBOUND_GATE_MAX_RETRIES || '60', 10);
 
 const outNextKey = (to: string) => `outnext:${to}`;
@@ -99,7 +99,11 @@ async function requeueGate(job: Job): Promise<void> {
   await notifyHighQueue.add(
     job.name,
     { ...job.data, _gateRetries: gateRetries },
-    { delay: GATE_RETRY_DELAY_MS }
+    // Preservamos attempts/backoff del job original (los del Truco son livianos:
+    // attempts:2 / backoff fijo). Sin esto, el re-encolado reheredaría el
+    // attempts:4 + exponencial de los defaults de la cola y reaparecería el
+    // bloqueo head-of-line.
+    { delay: GATE_RETRY_DELAY_MS, attempts: job.opts.attempts, backoff: job.opts.backoff }
   );
 }
 

@@ -374,6 +374,18 @@ export class TrucoGameOrchestrator {
         accepted: null,
       };
 
+      // VALIDACIÓN DE FASE: un canto NUEVO (no una respuesta/escalación a una
+      // oferta pendiente) sólo lo puede iniciar quien tiene la prioridad/turno.
+      // Si ya jugaste tu carta, la prioridad pasó al rival → NO podés cantar.
+      // Esto cierra la ventana de canto al bajar carta (bug de "truco tardío").
+      const pendingOffer = current.lastCaller !== null && current.accepted === null;
+      if (!pendingOffer && match.current_turn_phone !== opts.userPhone) {
+        throw new TrucoCommandError(
+          'Ya no podés cantar: tu acción de este turno terminó',
+          'OUT_OF_PHASE'
+        );
+      }
+
       // El último cantor no puede re-cantar (sólo el otro puede responder o subir)
       if (current.lastCaller === seat) {
         throw new TrucoCommandError(
@@ -756,6 +768,17 @@ export class TrucoGameOrchestrator {
       }
       const hand = await this.getCurrentHand(client, match);
       const seat = seatOf(match, opts.userPhone);
+
+      // VALIDACIÓN DE FASE: sólo se puede ir al mazo si tenés la prioridad
+      // (tu turno de carta, o respondiendo un canto pendiente). Si ya jugaste y
+      // la prioridad pasó al rival, no es una acción válida tuya.
+      if (!this.playerHasPriority(match, hand, opts.userPhone)) {
+        throw new TrucoCommandError(
+          'No es tu momento de jugar: esperá tu turno',
+          'OUT_OF_PHASE'
+        );
+      }
+
       const winnerSeat = opponentSeat(seat);
       const winnerPhone = phoneOfSeat(match, winnerSeat);
 
@@ -844,6 +867,30 @@ export class TrucoGameOrchestrator {
       return phoneOfSeat(match, opponentSeat(hand.truco_state.lastCaller));
     }
     return fallback;
+  }
+
+  /**
+   * Versión síncrona de la prioridad: ¿este teléfono es de quien se espera una
+   * acción AHORA? (responder un canto pendiente, o jugar carta si no hay canto).
+   * Determinística sobre el estado ya cargado del hand: rechaza acciones fuera
+   * de fase sin depender de timing.
+   */
+  private static playerHasPriority(
+    match: TrucoMatchRow,
+    hand: TrucoHandRow,
+    phone: string
+  ): boolean {
+    if (hand.envido_state && hand.envido_state.accepted === null) {
+      return phone === phoneOfSeat(match, opponentSeat(hand.envido_state.offeredBy));
+    }
+    if (
+      hand.truco_state &&
+      hand.truco_state.accepted === null &&
+      hand.truco_state.lastCaller !== null
+    ) {
+      return phone === phoneOfSeat(match, opponentSeat(hand.truco_state.lastCaller));
+    }
+    return phone === (match.current_turn_phone ?? match.player_a_phone);
   }
 
   static async handleTimeout(opts: {

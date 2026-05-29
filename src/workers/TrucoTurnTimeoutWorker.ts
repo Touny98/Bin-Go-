@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { connection, trucoTurnTimeoutQueue } from '../queue';
+import { connection } from '../queue';
 import { logger } from '../utils/logger';
 import { TrucoGameOrchestrator } from '../domain/truco/TrucoGameOrchestrator';
 import { TrucoNotifier } from '../conversation/handlers/TrucoNotifier';
@@ -64,40 +64,7 @@ trucoTurnTimeoutWorker.on('failed', (job, err) => {
   logger.error({ jobId: job?.id, err: err.message }, '[TrucoTurnTimeoutWorker] failed');
 });
 
-/**
- * Helper para encolar un timeout cancelable. El jobId encodea matchId+seq
- * para poder hacer `queue.remove(jobId)` cuando el turno se completa.
- */
-// `:` está prohibido en jobIds de BullMQ — usamos `-` para mantener
-// el id determinista y compatible.
-function buildTimeoutJobId(matchId: string, seq: number): string {
-  return `truco-timeout-${matchId}-${seq}`;
-}
-
-export async function scheduleTurnTimeout(
-  matchId: string,
-  expectedSeq: number,
-  delayMs = 45000
-): Promise<void> {
-  const jobId = buildTimeoutJobId(matchId, expectedSeq);
-  await trucoTurnTimeoutQueue.add(
-    'timeout',
-    { matchId, expectedSeq },
-    {
-      delay: delayMs,
-      jobId,
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-}
-
-export async function cancelTurnTimeout(matchId: string, seq: number): Promise<void> {
-  const jobId = buildTimeoutJobId(matchId, seq);
-  try {
-    const job = await trucoTurnTimeoutQueue.getJob(jobId);
-    if (job) await job.remove();
-  } catch (e: any) {
-    logger.debug({ jobId, err: e.message }, '[TrucoTurnTimeout] cancel skipped');
-  }
-}
+// El armado/desarmado real de timeouts vive en TrucoTurnGuard
+// (armTurnTimeout / disarmTurnTimeout). Las funciones scheduleTurnTimeout /
+// cancelTurnTimeout que vivían acá eran código muerto (nadie las importaba) y
+// se eliminaron para evitar dos caminos paralelos de timeout.

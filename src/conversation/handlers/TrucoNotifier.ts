@@ -47,6 +47,22 @@ const OUTSEQ_TTL_MS = parseInt(
 );
 
 /**
+ * Reintentos de los envíos del Truco. Pocos y cortos A PROPÓSITO: con la
+ * compuerta FIFO, un mensaje que falla bloquea la cabeza del teléfono mientras
+ * reintenta. Con attempts:4 + backoff exponencial (defaults de la cola) eso son
+ * ~9s de bloqueo → los siguientes rebotan y terminan entregándose FUERA DE
+ * ORDEN. Con 2 intentos y backoff fijo corto el mensaje muerto se resuelve en
+ * ~0.4s y nunca llega al tope de la compuerta. Lo crítico lo cubre el reprompt.
+ */
+const TRUCO_SEND_OPTS = {
+  attempts: parseInt(process.env.TRUCO_SEND_ATTEMPTS || '2', 10),
+  backoff: {
+    type: 'fixed' as const,
+    delay: parseInt(process.env.TRUCO_SEND_BACKOFF_MS || '400', 10),
+  },
+};
+
+/**
  * Helper para enviar mensajes "push" a los jugadores fuera del ciclo
  * request-response del orchestrator conversacional.
  *
@@ -95,7 +111,7 @@ export class TrucoNotifier {
   static async sendText(phone: string, text: string): Promise<void> {
     const to = await this.resolveJid(phone);
     const outSeq = await this.nextOutSeq(to);
-    await notifyHighQueue.add('send_notification', { to, text, outSeq });
+    await notifyHighQueue.add('send_notification', { to, text, outSeq }, TRUCO_SEND_OPTS);
     TrucoTrace.event('outbound_enqueued', { phone, outSeq, jobName: 'send_notification' });
   }
 
@@ -109,7 +125,7 @@ export class TrucoNotifier {
       footer: payload.footer,
       fallbackText: payload.text,
       outSeq,
-    });
+    }, TRUCO_SEND_OPTS);
     TrucoTrace.event('outbound_enqueued', { phone, outSeq, jobName: 'send_buttons' });
   }
 
@@ -125,7 +141,7 @@ export class TrucoNotifier {
       footer: payload.footer,
       fallbackText: payload.text,
       outSeq,
-    });
+    }, TRUCO_SEND_OPTS);
     TrucoTrace.event('outbound_enqueued', { phone, outSeq, jobName: 'send_list' });
   }
 
@@ -247,6 +263,10 @@ export class TrucoNotifier {
   private static async armNextTurnTimeout(matchId: string): Promise<void> {
     try {
       const seq = await nextExpectedSeq(matchId);
+      // Desarmamos el timeout del turno ANTERIOR (ya cumplido): sin esto cada
+      // turno deja 2 jobs (warning + final) que disparan después y toman el lock
+      // del match (no-op por seq-guard, pero acumulativo bajo juego rápido).
+      if (seq > 1) await disarmTurnTimeout(matchId, seq - 1);
       await armTurnTimeout(matchId, seq);
     } catch (e: any) {
       logger.warn({ matchId, err: e.message }, '[TrucoNotifier] arm timeout failed');
@@ -272,31 +292,21 @@ export class TrucoNotifier {
       await this.pushBazaTally(match, hand, desc.bazaResolved, currentTurnPhone, rival);
     }
 
-    // Al inicio de la mano (todavía nadie jugó carta) enviamos primero, en un
-    // mensaje aparte, el score + número de mano a ambos jugadores.
+    // Cabecera (score + nº de mano). Al inicio de la mano la FUSIONAMOS dentro
+    // del prompt de cartas (jugador en turno) y del aviso de espera (rival), en
+    // vez de mandarla como mensaje aparte. Menos mensajes = flujo más rápido.
     const isStartOfHand = hand.baza_winners.length === 0;
-    if (isStartOfHand) {
-      await this.sendText(
-        currentTurnPhone,
-        TrucoMsg.ROUND_HEADER(
+    const activeHeader = isStartOfHand
+      ? TrucoMsg.ROUND_HEADER(
           hand.hand_number,
           activeSeat === 'A' ? match.score_a : match.score_b,
           activeSeat === 'A' ? match.score_b : match.score_a
         )
-      );
-      await this.sendText(
-        rival,
-        TrucoMsg.ROUND_HEADER(
-          hand.hand_number,
-          rivalSeat === 'A' ? match.score_a : match.score_b,
-          rivalSeat === 'A' ? match.score_b : match.score_a
-        )
-      );
-    }
+      : undefined;
 
     // ── Jugador en turno ──────────────────────────────────────────────
-    // "Tus cartas" (botones) + lista de cantos disponibles.
-    await this.sendCardPrompt(match, hand, currentTurnPhone);
+    // (Cabecera si corresponde +) "Tus cartas" (botones) + lista de cantos.
+    await this.sendCardPrompt(match, hand, currentTurnPhone, activeHeader);
 
     // ── Rival (esperando) ─────────────────────────────────────────────
     // Tras aceptar un truco, el rival ya recibió el anuncio: no repetimos.
@@ -304,11 +314,16 @@ export class TrucoNotifier {
     if (trucoJustAccepted) return;
 
     if (isStartOfHand) {
-      // Reparto inicial: el pie ve sus cartas (sin CTA ni lista de cantos);
-      // podrá cantar cuando le toque el turno.
+      // Reparto inicial: el pie recibe cabecera + sus cartas + "esperando" en
+      // UN solo mensaje (podrá cantar cuando le toque el turno).
+      const rivalHeader = TrucoMsg.ROUND_HEADER(
+        hand.hand_number,
+        rivalSeat === 'A' ? match.score_a : match.score_b,
+        rivalSeat === 'A' ? match.score_b : match.score_a
+      );
       await this.sendText(
         rival,
-        `${TrucoMsg.YOUR_CARDS_WAITING(rivalCards)}\n\n${TrucoMsg.WAITING_RIVAL()}`
+        `${rivalHeader}\n\n${TrucoMsg.YOUR_CARDS_WAITING(rivalCards)}\n\n${TrucoMsg.WAITING_RIVAL()}`
       );
     } else {
       // Mitad de mano: al que acaba de jugar NO le reenviamos cartas ni cantos.
@@ -326,12 +341,18 @@ export class TrucoNotifier {
   private static async sendCardPrompt(
     match: TrucoMatchRow,
     hand: TrucoHandRow,
-    phone: string
+    phone: string,
+    headerText?: string
   ): Promise<void> {
     const seat = seatOf(match, phone);
     const myCards = (seat === 'A' ? hand.cards_a : hand.cards_b) as Card[];
+    // Si viene cabecera (score + nº de mano), la fusionamos en el cuerpo del
+    // prompt de cartas en vez de mandar un mensaje aparte (menos mensajes).
+    const cardsBody = headerText
+      ? `${headerText}\n\n${TrucoMsg.YOUR_CARDS(myCards)}`
+      : TrucoMsg.YOUR_CARDS(myCards);
     await this.sendButtons(phone, {
-      text: TrucoMsg.YOUR_CARDS(myCards),
+      text: cardsBody,
       buttons: myCards.map((card, i) => ({ id: `play_${i + 1}`, label: cardTag(card) })),
     });
     const cantoRows = this.buildCantoRows(hand, seat);

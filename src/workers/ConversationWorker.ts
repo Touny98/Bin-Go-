@@ -10,7 +10,7 @@ import {
 // Delay corto: apenas se libera el lock, el mensaje se procesa, preservando el
 // orden por-usuario. Tope acotado para no reintentar para siempre si algo se
 // traba de verdad.
-const BUSY_RETRY_DELAY_MS = parseInt(process.env.CONVERSATION_BUSY_RETRY_MS || '300', 10);
+const BUSY_RETRY_DELAY_MS = parseInt(process.env.CONVERSATION_BUSY_RETRY_MS || '120', 10);
 const MAX_BUSY_RETRIES = parseInt(process.env.CONVERSATION_BUSY_MAX_RETRIES || '30', 10);
 
 export const conversationWorker = new Worker('whatsapp-inbound-queue', async (job: Job) => {

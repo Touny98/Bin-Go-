@@ -222,6 +222,9 @@ export const TrucoMsg = {
 
   // ─── Errores ───────────────────────────────────────────────────────
   ERR_NOT_YOUR_TURN: () => `🚦 No es tu turno, capo. Esperá.`,
+  // Acción fuera de fase: ej. cantar truco después de bajar carta. La ventana
+  // de esa acción ya cerró; el input se descarta de forma limpia.
+  ERR_OUT_OF_PHASE: () => `🚫 Esa acción ya no corresponde en este momento. Esperá las opciones de tu próximo turno.`,
   ERR_INVALID_ACTION: () => `❌ Esa jugada no se puede hacer ahora.`,
   ERR_NO_ACTIVE_MATCH: () => `🃏 No tenés partida activa de truco. Volvé al menú.`,
   ERR_UNKNOWN: () => `❓ No te entendí. Probá con los botones.`,

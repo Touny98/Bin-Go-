@@ -189,6 +189,7 @@ export class TrucoGameHandler extends BaseHandler {
         TrucoTrace.event('command_discarded', { matchId: id, phone, reason: e.code, detail: input });
         const map: Record<string, string> = {
           NOT_YOUR_TURN: TrucoMsg.ERR_NOT_YOUR_TURN(),
+          OUT_OF_PHASE: TrucoMsg.ERR_OUT_OF_PHASE(),
         };
         return { message: map[e.code] ?? TrucoMsg.ERR_INVALID_ACTION() };
       }
@@ -223,9 +224,10 @@ export class TrucoGameHandler extends BaseHandler {
         card,
         idempotencyKey: idem,
       });
-      // Confirmar al jugador qué carta jugó (mensaje confidencial extra)
-      await TrucoNotifier.sendText(phone, TrucoMsg.CARD_PLAYED_BY_YOU(card));
-      // Notificar al rival qué carta jugó
+      // (Antes mandábamos también CARD_PLAYED_BY_YOU al propio jugador, pero es
+      // redundante —ya sabe qué carta tocó— y suma un mensaje al stream. Lo
+      // quitamos para que el flujo se sienta más ágil.)
+      // Notificar al rival qué carta jugó.
       const rivalPhone =
         phone === match.player_a_phone ? match.player_b_phone : match.player_a_phone;
       await TrucoNotifier.sendText(rivalPhone, TrucoMsg.CARD_PLAYED_BY_RIVAL(card));
@@ -268,6 +270,7 @@ export class TrucoGameHandler extends BaseHandler {
       if (e instanceof TrucoCommandError) {
         TrucoTrace.event('command_discarded', { reason: e.code });
         if (e.code === 'NOT_YOUR_TURN') return { message: TrucoMsg.ERR_NOT_YOUR_TURN() };
+        if (e.code === 'OUT_OF_PHASE') return { message: TrucoMsg.ERR_OUT_OF_PHASE() };
         return { message: e.message };
       }
       throw e;
