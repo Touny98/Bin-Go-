@@ -156,7 +156,7 @@ export class BingoEngine {
     shuffle(pool);
     shuffle(pool); // segunda pasada para romper cualquier patrón residual
 
-    const selected = pool.slice(0, total).sort((a, b) => a - b);
+    const selected = pool.slice(0, total);
     const card: (number | null)[][] = [];
     for (let r = 0; r < rows; r++) {
       card.push(selected.slice(r * cols, (r + 1) * cols));

@@ -26,25 +26,6 @@ export class NotificationService {
     });
   }
 
-  public static async notifyWithImage(userId: string, eventType: string, mediaPath: string, caption?: string) {
-    logger.info({ userId, eventType }, `[NotificationService] Enqueueing MEDIA notification`);
-    
-    const logRes = await query(
-      `INSERT INTO notification_logs (user_id, event_type, provider, status, payload) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [userId, eventType, 'whatsapp', 'PENDING', caption || 'Media']
-    );
-
-    await notifyHighQueue.add('send_media_notification', {
-      logId: logRes.rows[0].id,
-      to: userId,
-      text: caption,
-      mediaPath
-    }, {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5000 }
-    });
-  }
-
   /**
    * Translates a raw domain event into a Bulk Notification Job.
    * Uses notifyBulkQueue which is heavily rate-limited.

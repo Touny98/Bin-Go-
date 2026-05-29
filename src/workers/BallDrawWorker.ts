@@ -8,7 +8,8 @@ import { GameSessionService } from '../domain/GameSessionService';
 import { SaleOSaleResolver } from '../game/SaleOSaleResolver';
 import { WalletEngine } from '../finance/WalletEngine';
 import { TensionEventEmitter } from '../game/TensionEventEmitter';
-import { buildCardBlock, getNearWinThreshold } from '../utils/cardFormatter';
+import { buildCardBlock, getNearWinThreshold, isCardNearWin } from '../utils/cardFormatter';
+import { getNarratorFolder } from '../audio/audioConfig';
 
 export const ballDrawWorker = new Worker('ball-draw-queue', async (job: Job) => {
   const {
@@ -21,7 +22,7 @@ export const ballDrawWorker = new Worker('ball-draw-queue', async (job: Job) => 
 
   if (currentIdx >= sequence.length) {
     logger.info({ sessionId }, `[BallDrawWorker] Sequence exhausted without winner`);
-    await handleNoWinner(sessionId, gameMode ?? 'SALE_O_SALE', maxBalls ?? sequence.length);
+    await handleNoWinner(sessionId, gameMode ?? 'SALE_O_SALE', maxBalls ?? sequence.length, 34000);
     return;
   }
 
@@ -59,16 +60,55 @@ export const ballDrawWorker = new Worker('ball-draw-queue', async (job: Job) => 
   const effectiveMaxBalls = maxBalls ?? sequence.length;
   const remaining = effectiveMaxBalls - newDrawnNumbers.length;
 
+  // ── Detectar ganador de BINGO completo ─────────────────────────────────────
+  let bingoWinner: any = null;
+  let lineWinner: any = null;
+
+  for (const card of activeCards) {
+    const remainingList = card.matrix.flat().filter(
+      (n: number | null) => n !== null && !drawnSet.has(n)
+    );
+
+    if (remainingList.length === 0) {
+      bingoWinner = card;
+      break;
+    }
+
+    if (remainingList.length <= 2) {
+      eventBus.publish('player.near_win', {
+        gameId: sessionId,
+        userId: card.userId,
+        remaining: remainingList.length,
+        lastNumberNeeded: remainingList.length === 1 ? remainingList[0] : null,
+      });
+    }
+
+    if (!lineWinner && BingoEngine.checkLine(card.matrix, drawnSet)) {
+      lineWinner = card;
+    }
+  }
+
   // ── Notificar cada 3 bolillas (1 mensaje por minuto) ─────────────────────
-  const isBatchEnd = drawOrder % 3 === 0 || remaining === 0;
+  const isWinnerFound = bingoWinner !== null || newDrawnNumbers.length >= effectiveMaxBalls;
+  const isBatchEnd = drawOrder % 3 === 0 || remaining === 0 || isWinnerFound;
   if (isBatchEnd) {
     const batchStart = drawOrder - (drawOrder % 3 === 0 ? 2 : (drawOrder % 3) - 1);
     const batchBalls = newDrawnNumbers.slice(batchStart - 1, drawOrder);
 
     const threshold = getNearWinThreshold(gameMode ?? 'SALE_O_SALE', effectiveMaxBalls);
+    const narratorFolder = getNarratorFolder(gameMode ?? 'SALE_O_SALE');
     const byPhone = groupByPhone(activeCards as Array<{ phone: string; matrix: (number | null)[][] }>);
     for (const [phone, userCards] of byPhone) {
-      let msg = `🎱 *Bolillas: ${batchBalls.map(n => String(n).padStart(2, '0')).join(' — ')}*\n\n`;
+      // ¿Algún cartón de este usuario está cerca del bingo?
+      const anyNearWin = userCards.some(c =>
+        isCardNearWin(c.matrix, drawnSet, threshold)
+      );
+
+      const ballsStr = batchBalls.map(n => String(n).padStart(2, '0')).join(' — ');
+      let msg = anyNearWin
+        ? `🔥🔥🔥 *¡TE FALTA POCO PARA EL BINGO!* 🔥🔥🔥\n*Bolillas: ${ballsStr}*\n\n`
+        : `🎱 *Bolillas: ${ballsStr}*\n\n`;
+
       if (userCards.length === 1) {
         msg += `Tu cartón:\n${buildCardBlock(userCards[0].matrix, drawnSet, threshold)}\n\n`;
       } else {
@@ -77,7 +117,18 @@ export const ballDrawWorker = new Worker('ball-draw-queue', async (job: Job) => 
         }
       }
       msg += `Sorteadas: ${newDrawnNumbers.length}/${effectiveMaxBalls}`;
-      await notifyHighQueue.add('send_notification', { to: phone, text: msg });
+
+      // 1. Audio PTT a los 20s
+      await notifyHighQueue.add('send_audio', {
+        to: phone,
+        audioNumbers: batchBalls,
+        sessionId,
+        drawOrder,
+        narratorFolder,
+      }, { delay: 20000 });
+
+      // 2. Texto con cartones 6s después del audio (20 + 6 = 26s)
+      await notifyHighQueue.add('send_notification', { to: phone, text: msg }, { delay: 26000 });
     }
   }
 
@@ -95,39 +146,11 @@ export const ballDrawWorker = new Worker('ball-draw-queue', async (job: Job) => 
   // ── Alertas de tensión ──────────────────────────────────────────────────────
   await TensionEventEmitter.check(sessionId, newDrawnNumbers.length, effectiveMaxBalls, gameMode ?? 'SALE_O_SALE');
 
-  // ── Detectar ganador de BINGO completo ─────────────────────────────────────
-  let bingoWinner = null;
-  let lineWinner = null;
-
-  for (const card of activeCards) {
-    const remaining = card.matrix.flat().filter(
-      (n: number | null) => n !== null && !drawnSet.has(n)
-    );
-
-    if (remaining.length === 0) {
-      bingoWinner = card;
-      break;
-    }
-
-    if (remaining.length <= 2) {
-      eventBus.publish('player.near_win', {
-        gameId: sessionId,
-        userId: card.userId,
-        remaining: remaining.length,
-        lastNumberNeeded: remaining.length === 1 ? remaining[0] : null,
-      });
-    }
-
-    if (!lineWinner && BingoEngine.checkLine(card.matrix, drawnSet)) {
-      lineWinner = card;
-    }
-  }
-
   if (bingoWinner) {
     logger.info({ sessionId, cardId: bingoWinner.id }, `[BallDrawWorker] BINGO winner detected!`);
     const locked = await GameSessionService.lockWinner(sessionId, bingoWinner.userId);
     if (locked) {
-      await payoutJackpot(sessionId, bingoWinner.userId, bingoWinner.id, 'BINGO_WIN');
+      await payoutJackpot(sessionId, bingoWinner.userId, bingoWinner.id, 'BINGO_WIN', getNarratorFolder(gameMode ?? 'SALE_O_SALE'), 34000);
 
       // Mark all cards as completed when game ends
       await query('UPDATE cards SET status = $1 WHERE game_session_id = $2 AND status = $3',
@@ -150,7 +173,7 @@ export const ballDrawWorker = new Worker('ball-draw-queue', async (job: Job) => 
   // ── Verificar si se alcanzó el máximo de bolillas ─────────────────────────
   if (newDrawnNumbers.length >= effectiveMaxBalls) {
     logger.info({ sessionId, effectiveMaxBalls, gameMode }, `[BallDrawWorker] Max balls reached`);
-    await handleNoWinner(sessionId, gameMode ?? 'SALE_O_SALE', effectiveMaxBalls);
+    await handleNoWinner(sessionId, gameMode ?? 'SALE_O_SALE', effectiveMaxBalls, 34000);
     return;
   }
 
@@ -180,10 +203,10 @@ function groupByPhone<T extends { phone: string }>(cards: T[]): Map<string, T[]>
 }
 
 
-async function handleNoWinner(sessionId: number, gameMode: string, maxBalls: number): Promise<void> {
+async function handleNoWinner(sessionId: number, gameMode: string, maxBalls: number, notificationDelayMs = 0): Promise<void> {
   if (gameMode === 'SALE_O_SALE') {
     logger.info({ sessionId }, '[BallDrawWorker] Triggering Sale o Sale resolution');
-    await SaleOSaleResolver.resolve(sessionId);
+    await SaleOSaleResolver.resolve(sessionId, notificationDelayMs);
   } else if (gameMode === 'ACCUMULATIVE') {
     logger.info({ sessionId }, '[BallDrawWorker] No winner — rolling over jackpot');
     await SaleOSaleResolver.rolloverJackpot(sessionId);
@@ -202,14 +225,14 @@ async function handleNoWinner(sessionId: number, gameMode: string, maxBalls: num
         const jackpot = parseFloat(playersRes.rows[0].jackpot_amount);
         const montoStr = new Intl.NumberFormat('es-AR').format(jackpot);
         const msg =
-          `😮 *¡Esta semana el Jackpot quedó sin ganador!*\n\n` +
-          `El pozo de *$${montoStr}* se acumula para el próximo Domingo Millonario 🏆\n\n` +
-          `¡El próximo domingo podés ganar más que nunca!\n` +
-          `Escribí *MENU* para ver el próximo sorteo.`;
+          `😮 *¡Esta semana el Gran Fondo queda acumulado!*\n\n` +
+          `El fondo de *$${montoStr}* se suma para el próximo Domingo Millonario 🏆\n\n` +
+          `¡El próximo domingo el fondo es más grande que nunca!\n` +
+          `Escribí *MENU* para ver el próximo evento.`;
 
         for (const row of playersRes.rows) {
           const chatId = row.whatsapp_jid || (row.phone_number.includes('@') ? row.phone_number : `${row.phone_number}@c.us`);
-          await notifyHighQueue.add('send_notification', { to: chatId, text: msg });
+          await notifyHighQueue.add('send_notification', { to: chatId, text: msg }, { delay: notificationDelayMs });
         }
       }
     } catch (e: any) {
@@ -228,7 +251,9 @@ async function payoutJackpot(
   sessionId: number,
   userId: string,
   cardId: number,
-  reason: string
+  reason: string,
+  narratorFolder = 'narrador-1',
+  notificationDelayMs: number = 0
 ): Promise<void> {
   const sessionRes = await query(
     `SELECT gs.jackpot_amount, gs.room_id, gs.rollover_weeks,
@@ -297,20 +322,22 @@ async function payoutJackpot(
 
   if (game_mode === 'ACCUMULATIVE' && rollover_weeks > 0) {
     winMsg =
-      `🏆 *¡¡JACKPOT ACUMULADO!!* 🏆\n\n` +
-      `¡Cantaste BINGO en el Domingo Millonario!\n` +
-      `¡El pozo llevaba *${rollover_weeks} semana${rollover_weeks > 1 ? 's' : ''}* acumulando!\n\n` +
-      `💰 *GANASTE $${montoStr}*\n\n` +
+      `🏆 *¡¡GRAN FONDO ACUMULADO!!* 🏆\n\n` +
+      `¡Completaste el cartón en el Domingo Millonario!\n` +
+      `¡El fondo llevaba *${rollover_weeks} semana${rollover_weeks > 1 ? 's' : ''}* creciendo!\n\n` +
+      `💰 *¡ES TUYO! $${montoStr}*\n\n` +
       `¡Felicitaciones! El monto será acreditado en breve.`;
   } else {
     winMsg =
-      `🏆 *¡¡BINGO!! ¡GANASTE!* 🏆\n\n` +
+      `🏆 *¡¡BINGO!! ¡EL FONDO ES TUYO!* 🏆\n\n` +
       `¡Completaste tu cartón primero!\n\n` +
-      `💰 *Premio: $${montoStr}*\n\n` +
-      `¡Felicitaciones! El monto será acreditado en breve.`;
+      `💰 *$${montoStr} acreditados a tu saldo*\n\n` +
+      `¡Felicitaciones! El monto ya está disponible.`;
   }
 
-  await notifyHighQueue.add('send_notification', { to: chatId, text: winMsg });
+  // Audio de bingo inmediato (PTT), texto con 15s de delay para que llegue después del audio
+  await notifyHighQueue.add('send_bingo_audio', { to: chatId, narratorFolder }, { delay: notificationDelayMs });
+  await notifyHighQueue.add('send_notification', { to: chatId, text: winMsg }, { delay: notificationDelayMs + 2000 });
 
   logger.info({ sessionId, userId, totalJackpot, reason }, '[BallDrawWorker] Jackpot paid out');
 }

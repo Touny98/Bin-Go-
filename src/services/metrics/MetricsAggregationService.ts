@@ -6,8 +6,6 @@ import {
   notifyHighQueue,
   paymentConfirmationQueue,
   reservationExpireQueue,
-  renderQueue,
-  mediaCleanupQueue,
   campaignQueue,
   payoutQueue,
   reconciliationQueue,
@@ -67,8 +65,6 @@ export class MetricsAggregationService {
       notifyHigh: await notifyHighQueue.count(),
       paymentConfirmation: await paymentConfirmationQueue.count(),
       reservationExpire: await reservationExpireQueue.count(),
-      render: await renderQueue.count(),
-      mediaCleanup: await mediaCleanupQueue.count(),
       campaign: await campaignQueue.count(),
       payout: await payoutQueue.count(),
       reconciliation: await reconciliationQueue.count(),
@@ -100,9 +96,15 @@ export class MetricsAggregationService {
     let pendingPayouts = 0;
 
     try {
+      // Ingresos del día = ventas de cartones CONFIRMADAS (status PAID) en las últimas 24 hs
       const revenueRes = await query(`
-        SELECT SUM(amount) as total FROM ledger_entries
-        WHERE category = 'DEPOSIT' AND created_at > NOW() - INTERVAL '24 hours'
+        SELECT COALESCE(SUM(r.card_price), 0) as total
+        FROM card_reservations cr
+        JOIN cards c ON c.id = cr.card_id
+        JOIN game_sessions gs ON gs.id = c.game_session_id
+        JOIN rooms r ON r.id = gs.room_id
+        WHERE cr.status = 'PAID'
+          AND cr.created_at > NOW() - INTERVAL '24 hours'
       `);
       dailyRevenue = parseFloat(revenueRes.rows[0]?.total || '0');
     } catch (e) {
@@ -110,8 +112,12 @@ export class MetricsAggregationService {
     }
 
     try {
+      // Contar salas DISTINTAS con al menos una sesión activa o próxima (no total de sesiones)
       const activeRoomsRes = await query(
-        "SELECT COUNT(*) FROM game_sessions WHERE status IN ('READY','IN_PROGRESS')",
+        `SELECT COUNT(DISTINCT room_id) FROM game_sessions
+         WHERE status = 'RUNNING'
+            OR (status IN ('CREATED','READY')
+                AND scheduled_at BETWEEN NOW() - INTERVAL '10 minutes' AND NOW() + INTERVAL '25 hours')`,
       );
       activeRooms = parseInt(activeRoomsRes.rows[0]?.count || '0');
     } catch (e) {
@@ -134,7 +140,7 @@ export class MetricsAggregationService {
         `SELECT COUNT(DISTINCT c.user_id)
          FROM cards c
          JOIN game_sessions gs ON c.game_session_id = gs.id
-         WHERE gs.status IN ('READY','IN_PROGRESS') AND c.status = 'active'`,
+         WHERE gs.status = 'RUNNING' AND c.status = 'active'`,
       );
       onlineUsers = parseInt(onlineRes.rows[0]?.count || '0');
     } catch (e) {
@@ -143,6 +149,7 @@ export class MetricsAggregationService {
 
     const snapshot = {
       timestamp: new Date().toISOString(),
+      __cachedAt: Date.now(),
       queueDepths,
       health: {
         db: dbHealthy,

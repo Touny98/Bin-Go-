@@ -99,8 +99,53 @@ async function seed() {
       ]);
     }
 
-    // Las sesiones de juego son creadas automáticamente por SessionSchedulerService al arrancar.
-    // NO se crean sesiones en el seed para evitar tiempos mal alineados.
+    // ─── GAME SESSIONS ────────────────────────────────────────────────────────
+    // Crear sesiones de juego para que las salas sean visibles inmediatamente
+    logger.info('Seeding game sessions...');
+    const now = new Date();
+
+    // Sale o Sale - cada 30 minutos
+    for (let i = 0; i < 3; i++) {
+      const scheduledAt = new Date(now.getTime() + (i + 1) * 30 * 60 * 1000);
+      await query(`
+        INSERT INTO game_sessions (room_id, status, scheduled_at, game_mode, max_balls)
+        VALUES ($1, 'CREATED', $2, 'SALE_O_SALE', 45)
+        ON CONFLICT DO NOTHING
+      `, [1, scheduledAt]);
+    }
+
+    // La Diaria - 14:00 y 23:00
+    const diaria1 = new Date(now);
+    diaria1.setHours(14, 0, 0, 0);
+    if (diaria1 < now) diaria1.setDate(diaria1.getDate() + 1);
+
+    const diaria2 = new Date(now);
+    diaria2.setHours(23, 0, 0, 0);
+    if (diaria2 < now) diaria2.setDate(diaria2.getDate() + 1);
+
+    await query(`
+      INSERT INTO game_sessions (room_id, status, scheduled_at, game_mode, max_balls)
+      VALUES ($1, 'CREATED', $2, 'SALE_O_SALE', 60)
+      ON CONFLICT DO NOTHING
+    `, [2, diaria1]);
+
+    await query(`
+      INSERT INTO game_sessions (room_id, status, scheduled_at, game_mode, max_balls)
+      VALUES ($1, 'CREATED', $2, 'SALE_O_SALE', 60)
+      ON CONFLICT DO NOTHING
+    `, [2, diaria2]);
+
+    // Domingo Millonario - próximo domingo a las 18:30
+    const domingo = new Date(now);
+    const daysUntilSunday = (0 - domingo.getDay() + 7) % 7 || 7;
+    domingo.setDate(domingo.getDate() + daysUntilSunday);
+    domingo.setHours(18, 30, 0, 0);
+
+    await query(`
+      INSERT INTO game_sessions (room_id, status, scheduled_at, game_mode, max_balls)
+      VALUES ($1, 'CREATED', $2, 'ACCUMULATIVE', 75)
+      ON CONFLICT DO NOTHING
+    `, [3, domingo]);
 
     // ─── DYNAMIC CONFIGS ──────────────────────────────────────────────────────
     logger.info('Seeding dynamic configs...');

@@ -1,0 +1,11 @@
+version: "2"
+# authtoken viene de la variable de entorno NGROK_AUTHTOKEN (ngrok v3 la lee nativa)
+
+web_addr: 0.0.0.0:4040
+
+tunnels:
+  # Túnel original: solo la API (webhooks MP y WhatsApp)
+  api:
+    proto: http
+    addr: app:3010
+    domain: discourse-handwork-switch.ngrok-free.dev

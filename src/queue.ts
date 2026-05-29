@@ -17,18 +17,29 @@ export const whatsappInboundQueue = new Queue('whatsapp-inbound-queue', { connec
 export const whatsappOutboundQueue = new Queue('whatsapp-outbound-queue', { connection });
 
 // Notifications
-export const notifyHighQueue = new Queue('notify-high-queue', { connection });
-export const notifyBulkQueue = new Queue('notify-bulk-queue', { connection });
+// Reintentamos los envíos: Meta devuelve errores transitorios (#131000 /
+// HTTP 5xx) cada tanto y, sin reintento, un mensaje crítico de juego se pierde
+// y traba la partida (ej.: el rival nunca recibe "te cantaron real envido").
+const NOTIFY_JOB_OPTS = {
+  attempts: 4,
+  backoff: { type: 'exponential' as const, delay: 1500 },
+  removeOnComplete: 1000,
+  removeOnFail: 2000,
+};
+export const notifyHighQueue = new Queue('notify-high-queue', {
+  connection,
+  defaultJobOptions: NOTIFY_JOB_OPTS,
+});
+export const notifyBulkQueue = new Queue('notify-bulk-queue', {
+  connection,
+  defaultJobOptions: NOTIFY_JOB_OPTS,
+});
 export const notificationsQueue = new Queue('notifications-queue', { connection });
 
 // Payment/Transactions
 export const paymentConfirmationQueue = new Queue('payment-confirmation-queue', { connection });
 export const reservationExpireQueue = new Queue('reservation-expire-queue', { connection });
 export const fraudQueue = new Queue('fraud-queue', { connection });
-
-// Media & Admin
-export const renderQueue = new Queue('render-queue', { connection });
-export const mediaCleanupQueue = new Queue('media-cleanup-queue', { connection });
 
 // Operations & Finance
 export const campaignQueue = new Queue('campaign-queue', { connection });
@@ -37,3 +48,8 @@ export const reconciliationQueue = new Queue('reconciliation-queue', { connectio
 
 // Analytics & Monitoring
 export const analyticsQueue = new Queue('analytics-queue', { connection });
+
+// Truco
+export const trucoMatchmakingQueue = new Queue('truco-matchmaking-queue', { connection });
+export const trucoTurnTimeoutQueue = new Queue('truco-turn-timeout-queue', { connection });
+export const trucoPayoutQueue = new Queue('truco-payout-queue', { connection });

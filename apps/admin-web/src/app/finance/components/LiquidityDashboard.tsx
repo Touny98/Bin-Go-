@@ -11,9 +11,9 @@ import {
 import { AlertTriangle, ShieldCheck, Wallet } from 'lucide-react';
 
 const data = [
-  { name: 'Available Liquidity', value: 750000, color: '#10b981' },
-  { name: 'Pending Payouts', value: 150000, color: '#f59e0b' },
-  { name: 'Jackpot Reserved', value: 300000, color: '#6366f1' },
+  { name: 'Liquidez disponible', value: 750000, color: '#10b981' },
+  { name: 'Retiros pendientes', value: 150000, color: '#f59e0b' },
+  { name: 'Jackpot reservado', value: 300000, color: '#6366f1' },
 ];
 
 export const LiquidityDashboard: React.FC = () => {
@@ -22,11 +22,11 @@ export const LiquidityDashboard: React.FC = () => {
       <div className="flex items-center justify-between mb-8">
         <h3 className="text-lg font-bold flex items-center gap-2">
           <Wallet className="w-5 h-5 text-indigo-500" />
-          Liquidity & Liabilities
+          Liquidez y Pasivos
         </h3>
         <div className="flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">
           <ShieldCheck className="w-4 h-4" />
-          RATIO: 2.5x (HEALTHY)
+          RATIO: 2.5x (SALUDABLE)
         </div>
       </div>
 
@@ -64,8 +64,8 @@ export const LiquidityDashboard: React.FC = () => {
           <div className="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-900/30 rounded-xl flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-xs font-bold text-yellow-800 dark:text-yellow-400">Low Reserve Alert</p>
-              <p className="text-[10px] text-yellow-700 dark:text-yellow-500 mt-1">Pending payouts reaching 20% of liquidity. Consider topping up operating wallet.</p>
+              <p className="text-xs font-bold text-yellow-800 dark:text-yellow-400">Alerta de Reserva Baja</p>
+              <p className="text-[10px] text-yellow-700 dark:text-yellow-500 mt-1">Los retiros pendientes están alcanzando el 20% de la liquidez. Considerá recargar la billetera operativa.</p>
             </div>
           </div>
         </div>

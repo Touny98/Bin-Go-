@@ -15,7 +15,7 @@ async function simulate() {
   try {
     // Dynamic import to prevent hoisting of the whatsAppProvider instantiation
     const { query, initDb } = await import('../db');
-    const { whatsAppProvider } = await import('../notifications/providers/WhatsAppWebProvider');
+    const { whatsappInboundQueue } = await import('../queue');
     const { EventSubscribers } = await import('../notifications/EventSubscribers');
     const { CardReservationService } = await import('../domain/CardReservationService');
     const { GameSessionService } = await import('../domain/GameSessionService');
@@ -69,33 +69,30 @@ async function simulate() {
     await sleep(3000);
     console.log('✅  Event listeners active and BullMQ workers booted.');
 
-    // Step 3: Initialize Mock WhatsApp Provider
-    console.log('\n📱  [3/8] Starting mock WhatsApp connection...');
-    await whatsAppProvider.initialize();
-    await sleep(1500); // Wait for mock ready lifecycle
-    console.log('✅  WhatsApp Provider in MOCK mode ready.');
+    // Step 3: (Meta Cloud API — no mock initialization needed)
+    console.log('\n📱  [3/8] Meta Cloud API provider ready (MOCK_MODE=true skips real sends).');
 
     // Step 4: Simulate User Conversation to request purchase (Wait 2.5s to bypass 2s lock TTL)
     console.log(`\n💬  [4/8] Starting conversational purchase flow for player: +${mockPhoneNumber}`);
     
     console.log('🗣️  User sends: "BINGO" (Main Menu request)');
-    whatsAppProvider.triggerMockMessage(mockPhoneNumber, 'BINGO');
+    await whatsappInboundQueue.add('inbound_message', { from: mockPhoneNumber, input: 'BINGO' });
     await sleep(2500);
 
     console.log('🗣️  User sends: "1" (Browse Available Rooms)');
-    whatsAppProvider.triggerMockMessage(mockPhoneNumber, '1');
+    await whatsappInboundQueue.add('inbound_message', { from: mockPhoneNumber, input: '1' });
     await sleep(2500);
 
     console.log('🗣️  User sends: "1" (Select Room 1 - Bingo Express ⚡)');
-    whatsAppProvider.triggerMockMessage(mockPhoneNumber, '1');
+    await whatsappInboundQueue.add('inbound_message', { from: mockPhoneNumber, input: '1' });
     await sleep(2500);
 
     console.log('🗣️  User sends: "2" (Requesting 2 cards)');
-    whatsAppProvider.triggerMockMessage(mockPhoneNumber, '2');
+    await whatsappInboundQueue.add('inbound_message', { from: mockPhoneNumber, input: '2' });
     await sleep(2500);
 
     console.log('🗣️  User sends: "SI" (Confirm purchase & generate payment link)');
-    whatsAppProvider.triggerMockMessage(mockPhoneNumber, 'SI');
+    await whatsappInboundQueue.add('inbound_message', { from: mockPhoneNumber, input: 'SI' });
     await sleep(2500);
 
     // Step 5: Resolve and confirm mock payment
@@ -158,10 +155,7 @@ async function simulate() {
 
     // Trigger near-win event subscriber manually to fire alert
     console.log('📢  Firing "player.near_win" engagement event...');
-    await whatsAppProvider.sendMessage(
-      mockPhoneNumber, 
-      `😱🔥 ¡SOLO TE FALTA UNO!\n\nNecesitas el número *${lastNumberNeeded}* para cantar BINGO. ¡Mucha suerte!`
-    );
+    console.log(`[MOCK] Near-win message → ${mockPhoneNumber}: ¡SOLO TE FALTA UNO! Número: ${lastNumberNeeded}`);
     await sleep(2500);
 
     // Step 8: Draw the last number to hit BINGO and claim payout

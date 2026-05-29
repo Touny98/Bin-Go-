@@ -3,8 +3,10 @@ import { connection, notifyHighQueue } from '../queue';
 import { logger } from '../utils/logger';
 import { MercadoPagoService } from '../services/MercadoPagoService';
 import { CardReservationService } from '../domain/CardReservationService';
+import { WalletDepositService } from '../domain/WalletDepositService';
 import { SessionStore } from '../conversation/SessionStore';
 import { Templates } from '../conversation/templates/MessageTemplates';
+import { TrucoMsg, formatARS } from '../conversation/templates/TrucoMessages';
 import { query } from '../db';
 
 export const paymentConfirmationWorker = new Worker('payment-confirmation-queue', async (job: Job) => {
@@ -20,6 +22,52 @@ export const paymentConfirmationWorker = new Worker('payment-confirmation-queue'
       if (!externalRef) {
         logger.error({ paymentId }, '[PaymentConfirmationWorker] Payment approved but missing external_reference');
         throw new Error(`Payment ${paymentId} is approved but has no external reference`);
+      }
+
+      // ── Carga de saldo de wallet (Truco / cualquier flujo futuro) ──
+      if (externalRef.startsWith('DEPOSIT_')) {
+        try {
+          const { phone, amount } = await WalletDepositService.confirmDeposit(externalRef);
+
+          // Resolver JID para notificación
+          let chatId: string;
+          try {
+            const jidRes = await query('SELECT whatsapp_jid FROM users WHERE phone_number = $1', [phone]);
+            chatId = jidRes.rows[0]?.whatsapp_jid || `${phone}@c.us`;
+          } catch {
+            chatId = `${phone}@c.us`;
+          }
+
+          const depositSuccessText =
+            `✅ *¡Saldo acreditado!*\n\n` +
+            `Se cargaron *${formatARS(amount)}* a tu cuenta TIMBA. ¡Ya podés jugar!`;
+          const trucoMenuText = TrucoMsg.TRUCO_MAIN_MENU();
+
+          await notifyHighQueue.add('send_notification', { to: chatId, text: depositSuccessText });
+
+          // Menú de Truco después de confirmar depósito
+          await notifyHighQueue.add('send_buttons', {
+            to: chatId,
+            text: trucoMenuText,
+            buttons: [
+              { id: 'truco_rooms',  label: '🎡 Ver mesas'        },
+              { id: 'truco_perfil', label: '👤 Mi perfil'         },
+              { id: 'truco_switch', label: '🔄 Cambiar de juego'  },
+            ],
+            footer: 'TIMBA — tu plataforma de juegos',
+            fallbackText: trucoMenuText,
+          }, { delay: 800 });
+
+          try {
+            await SessionStore.update(chatId, { state: 'TRUCO_LOBBY' });
+          } catch { /* non-critical */ }
+
+          logger.info({ phone, amount, externalRef }, '[PaymentConfirmationWorker] Deposit applied');
+        } catch (e: any) {
+          logger.error({ externalRef, err: e.message }, '[PaymentConfirmationWorker] Deposit failed');
+          throw e;
+        }
+        return;
       }
 
       const success = await CardReservationService.confirmPayment(externalRef);
@@ -97,9 +145,23 @@ export const paymentConfirmationWorker = new Worker('payment-confirmation-queue'
         const notificationText = Templates.PURCHASE_DRAW_REMINDER({ roomName, quantity, scheduledAt });
         await notifyHighQueue.add('send_notification', { to: chatId, text: notificationText });
 
-        // Actualizar sesión a MAIN_MENU
+        // Menú de Bingo después de confirmar compra de cartones
+        const bingoMenuText = Templates.BINGO_MAIN_MENU();
+        await notifyHighQueue.add('send_buttons', {
+          to: chatId,
+          text: bingoMenuText,
+          buttons: [
+            { id: 'bingo_rooms',   label: '🎡 Ver Salas'        },
+            { id: 'bingo_profile', label: '👤 Mi Perfil'         },
+            { id: 'bingo_switch',  label: '🔄 Cambiar de juego'  },
+          ],
+          footer: 'TIMBA — tu plataforma de juegos',
+          fallbackText: bingoMenuText,
+        }, { delay: 800 });
+
+        // Actualizar sesión a BINGO_MENU
         try {
-          await SessionStore.update(sessionUserId, { state: 'MAIN_MENU' });
+          await SessionStore.update(sessionUserId, { state: 'BINGO_MENU' });
         } catch (e) {
           logger.warn({ sessionUserId }, '[PaymentConfirmationWorker] No se pudo actualizar estado de sesión');
         }

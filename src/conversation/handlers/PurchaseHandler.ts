@@ -66,7 +66,15 @@ export class PurchaseHandler extends BaseHandler {
             nextState: 'BINGO_MENU',
             nextContext: {},
             message: successText,
-            followUp: buildBingoMenuFollowUp(),
+            buttons: {
+              text: successText,
+              buttons: [
+                { id: 'bingo_rooms',   label: '🎡 Ver Salas'        },
+                { id: 'bingo_profile', label: '👤 Mi Perfil'         },
+                { id: 'bingo_switch',  label: '🔄 Cambiar de juego'  },
+              ],
+              footer: 'TIMBA — tu plataforma de juegos',
+            },
           };
         } catch (error: any) {
           logger.error({ error: error.message }, '[PurchaseHandler] Wallet payment failed');
@@ -182,7 +190,7 @@ export class PurchaseHandler extends BaseHandler {
         text: quantityText,
         buttonLabel: 'Elegir cantidad',
         sections: [{
-          title: 'Seleccioná cuántos querés',
+          title: 'Cantidad',
           rows: [
             { id: '1', title: '1 cartón',   description: priceStr ? `Total: ${formatARS(price * 1)}` : '' },
             { id: '2', title: '2 cartones', description: priceStr ? `Total: ${formatARS(price * 2)}` : '' },

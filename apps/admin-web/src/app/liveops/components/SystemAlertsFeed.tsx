@@ -32,15 +32,15 @@ export const SystemAlertsFeed: React.FC<SystemAlertsFeedProps> = ({ alerts }) =>
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-100 dark:border-gray-700 h-[400px] flex flex-col">
       <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
-        System Alerts
-        <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">Live</span>
+        Alertas del Sistema
+        <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">En vivo</span>
       </h3>
-      
+
       <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
         {alerts.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-gray-400">
             <AlertCircle className="w-8 h-8 mb-2 opacity-20" />
-            <p className="text-sm">No active alerts</p>
+            <p className="text-sm">Sin alertas activas</p>
           </div>
         ) : (
           alerts.map((alert) => (

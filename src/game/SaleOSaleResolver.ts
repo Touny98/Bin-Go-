@@ -3,6 +3,7 @@ import { logger } from '../utils/logger';
 import { notifyHighQueue } from '../queue';
 import { SocketServer } from '../realtime/SocketServer';
 import { WalletEngine } from '../finance/WalletEngine';
+import { getNarratorFolder } from '../audio/audioConfig';
 
 export interface SaleOSaleResult {
   winners: Array<{ userId: string; cardId: number; hits: number }>;
@@ -16,7 +17,7 @@ export class SaleOSaleResolver {
    * Calcula el ganador (o ganadores en empate) por mayor cantidad de aciertos.
    * Llamar cuando se alcanza max_balls sin bingo tradicional.
    */
-  public static async resolve(sessionId: number): Promise<SaleOSaleResult | null> {
+  public static async resolve(sessionId: number, notificationDelayMs: number = 0): Promise<SaleOSaleResult | null> {
     // Obtener bolillas sorteadas y monto del jackpot
     const sessionRes = await query(
       `SELECT gs.drawn_numbers, gs.jackpot_amount, gs.room_id,
@@ -32,6 +33,8 @@ export class SaleOSaleResolver {
     const jackpotAmount = parseFloat(sessionRes.rows[0].jackpot_amount);
     const roomId = sessionRes.rows[0].room_id;
     const tieRule: string = sessionRes.rows[0].tie_rule;
+    const gameMode: string = sessionRes.rows[0].game_mode;
+    const narratorFolder = getNarratorFolder(gameMode);
     const drawnSet = new Set(drawnNumbers);
 
     // Obtener todos los cartones activos de la sesión
@@ -114,7 +117,8 @@ export class SaleOSaleResolver {
           `¡Felicitaciones!`;
       }
 
-      await notifyHighQueue.add('send_notification', { to: chatId, text: msg });
+      await notifyHighQueue.add('send_bingo_audio', { to: chatId, narratorFolder }, { delay: notificationDelayMs });
+      await notifyHighQueue.add('send_notification', { to: chatId, text: msg }, { delay: notificationDelayMs + 2000 });
     }
 
     // Marcar sesión como terminada

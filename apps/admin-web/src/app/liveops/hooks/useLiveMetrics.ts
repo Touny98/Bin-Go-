@@ -45,8 +45,8 @@ export const useLiveMetrics = () => {
       const response = await api.get('/api/admin/metrics/live');
       return response.data;
     },
-    refetchInterval: false, // We rely on WebSockets for updates
-    staleTime: 30000,
+    refetchInterval: 10000, // Fallback polling cada 10s si el WebSocket falla
+    staleTime: 5000,
   });
 
   useEffect(() => {

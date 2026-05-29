@@ -1,0 +1,24 @@
+FROM node:20-slim
+
+# Dependencias de compilación para módulos nativos (bcrypt, canvas)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ pkg-config \
+    libcairo2-dev libpango-1.0-0 libpango1.0-dev \
+    libjpeg-dev libgif-dev librsvg2-dev \
+    libpixman-1-dev libfreetype6-dev fontconfig \
+    chromium chromium-sandbox \
+    libcairo2 libpango1.0-0 libjpeg62-turbo \
+    libgif7 librsvg2-2 libpixman-1-0 libfreetype6 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Instala TODAS las dependencias (incluidas devDependencies: ts-node, nodemon, typescript)
+COPY package*.json tsconfig.json ./
+RUN npm ci
+
+# src/ se monta como volumen en runtime → hot-reload sin rebuild
+EXPOSE 3010
+CMD ["npm", "run", "dev"]

@@ -83,19 +83,23 @@ export const initDb = async () => {
       ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS rollover_weeks SMALLINT DEFAULT 0;
       ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT FALSE;
 
-      -- Migrations for payout_requests
-      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS destination VARCHAR(200);
-      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(100);
-      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS risk_score INTEGER DEFAULT 0;
-      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS risk_notes TEXT;
-      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS provider_tx_id VARCHAR(100);
-      ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS fee_amount DECIMAL(12,2) DEFAULT 0;
-
       -- Migrations for users table
       ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(100);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_jid VARCHAR(60);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(200);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS real_phone VARCHAR(30);
+
+      CREATE TABLE IF NOT EXISTS cards (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        game_session_id INTEGER REFERENCES game_sessions(id),
+        matrix JSONB NOT NULL,
+        payment_id VARCHAR(100),
+        status VARCHAR(20) DEFAULT 'unpaid',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
 
       CREATE TABLE IF NOT EXISTS jackpot_audit (
         id SERIAL PRIMARY KEY,
@@ -109,16 +113,6 @@ export const initDb = async () => {
         balance_after DECIMAL(12,2),
         week_number SMALLINT,
         metadata JSONB,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS cards (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
-        game_session_id INTEGER REFERENCES game_sessions(id),
-        matrix JSONB NOT NULL,
-        payment_id VARCHAR(100),
-        status VARCHAR(20) DEFAULT 'unpaid',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -282,6 +276,89 @@ export const initDb = async () => {
       CREATE INDEX IF NOT EXISTS idx_jackpot_audit_session ON jackpot_audit(session_id);
       CREATE INDEX IF NOT EXISTS idx_jackpot_audit_room    ON jackpot_audit(room_id);
       CREATE INDEX IF NOT EXISTS idx_game_sessions_room_status ON game_sessions(room_id, status);
+
+      -- ============================================================
+      -- Truco Argentino — tablas
+      -- ============================================================
+      CREATE TABLE IF NOT EXISTS truco_matches (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        player_a_phone VARCHAR(50) NOT NULL,
+        player_b_phone VARCHAR(50) NOT NULL,
+        bet_amount DECIMAL(12,2) NOT NULL,
+        pot_amount DECIMAL(12,2) NOT NULL,
+        fee_pct DECIMAL(5,4) NOT NULL,
+        fee_amount DECIMAL(12,2),
+        status VARCHAR(32) NOT NULL,
+        score_a SMALLINT NOT NULL DEFAULT 0,
+        score_b SMALLINT NOT NULL DEFAULT 0,
+        target_score SMALLINT NOT NULL DEFAULT 15,
+        current_hand_id UUID,
+        mano_phone VARCHAR(50),
+        current_turn_phone VARCHAR(50),
+        winner_phone VARCHAR(50),
+        abandoned_by_phone VARCHAR(50),
+        deck_seed VARCHAR(128) NOT NULL,
+        integrity_hash VARCHAR(128) NOT NULL,
+        version INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        started_at TIMESTAMP,
+        finished_at TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_truco_matches_status ON truco_matches(status);
+      CREATE INDEX IF NOT EXISTS idx_truco_matches_player_a ON truco_matches(player_a_phone, finished_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_truco_matches_player_b ON truco_matches(player_b_phone, finished_at DESC);
+
+      CREATE TABLE IF NOT EXISTS truco_hands (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        match_id UUID NOT NULL REFERENCES truco_matches(id) ON DELETE CASCADE,
+        hand_number SMALLINT NOT NULL,
+        mano_phone VARCHAR(50) NOT NULL,
+        cards_a JSONB NOT NULL,
+        cards_b JSONB NOT NULL,
+        baza_winners JSONB NOT NULL DEFAULT '[]'::jsonb,
+        envido_state JSONB,
+        truco_level SMALLINT NOT NULL DEFAULT 1,
+        truco_state JSONB,
+        hand_winner_phone VARCHAR(50),
+        points_truco SMALLINT,
+        points_envido SMALLINT,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        finished_at TIMESTAMP,
+        UNIQUE (match_id, hand_number)
+      );
+      CREATE INDEX IF NOT EXISTS idx_truco_hands_match ON truco_hands(match_id, hand_number);
+
+      CREATE TABLE IF NOT EXISTS truco_actions (
+        id BIGSERIAL PRIMARY KEY,
+        match_id UUID NOT NULL REFERENCES truco_matches(id) ON DELETE CASCADE,
+        hand_id UUID REFERENCES truco_hands(id) ON DELETE CASCADE,
+        user_phone VARCHAR(50) NOT NULL,
+        action_type VARCHAR(32) NOT NULL,
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        sequence_number INTEGER NOT NULL,
+        idempotency_key VARCHAR(128),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (match_id, sequence_number),
+        UNIQUE (match_id, idempotency_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_truco_actions_match ON truco_actions(match_id, sequence_number);
+
+      CREATE TABLE IF NOT EXISTS truco_queue (
+        user_phone VARCHAR(50) PRIMARY KEY,
+        bet_amount DECIMAL(12,2) NOT NULL,
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_truco_queue_bet ON truco_queue(bet_amount, joined_at);
+
+      CREATE TABLE IF NOT EXISTS truco_leaderboards (
+        user_phone VARCHAR(50) PRIMARY KEY,
+        matches_played INTEGER NOT NULL DEFAULT 0,
+        matches_won INTEGER NOT NULL DEFAULT 0,
+        total_won DECIMAL(12,2) NOT NULL DEFAULT 0,
+        current_streak INTEGER NOT NULL DEFAULT 0,
+        best_streak INTEGER NOT NULL DEFAULT 0,
+        last_match_at TIMESTAMP
+      );
     `);
     console.log('Database schema initialized.');
   } catch (error) {

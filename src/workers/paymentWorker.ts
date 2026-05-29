@@ -2,8 +2,7 @@ import { Worker } from 'bullmq';
 import { connection, whatsappOutboundQueue, analyticsQueue } from '../queue';
 import { BingoEngine } from '../engine/BingoGame';
 import { query } from '../db';
-
-import { CardRenderer } from '../services/CardRenderer';
+import { buildCardBlock } from '../utils/cardFormatter';
 import { logger } from '../utils/logger';
 
 export const paymentWorker = new Worker(
@@ -24,15 +23,11 @@ export const paymentWorker = new Worker(
 
       logger.info(logContext, `[PaymentWorker] Generated card for ${userPhone}`);
 
-      // 2. Render visual card
-      const imagePath = await CardRenderer.renderCard(cardMatrix, new Set(), mockCardId);
-      logger.info(logContext, `[PaymentWorker] Rendered card image at ${imagePath}`);
-
-      // 3. Enqueue WhatsApp notification
+      // 2. Enqueue WhatsApp notification with text card
+      const cardText = `✅ ¡Pago acreditado! Aquí tienes tu cartón:\n\n${buildCardBlock(cardMatrix, new Set())}\n\nEl sorteo comenzará en breve. ¡Mucha suerte!`;
       await whatsappOutboundQueue.add('sendNotification', {
         to: userPhone,
-        text: '✅ ¡Pago acreditado! Aquí tienes tu cartón visual.\n\nEl sorteo comenzará en breve. ¡Mucha suerte!',
-        mediaPath: imagePath
+        text: cardText,
       });
 
       logger.info(logContext, `[PaymentWorker] Enqueued WA notification for ${userPhone}`);

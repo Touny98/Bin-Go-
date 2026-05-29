@@ -1,9 +1,10 @@
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3010';
-
+// URLs relativas — el browser llama al mismo origen del panel admin
+// (localhost:3011 en local, o el túnel ngrok desde afuera).
+// Next.js reescribe /api/* → http://app:3010/api/* internamente en Docker.
 export const api = axios.create({
-  baseURL: API_URL,
+  baseURL: '',
 });
 
 api.interceptors.request.use((config) => {

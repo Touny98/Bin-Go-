@@ -2,7 +2,18 @@ import { query } from '../db';
 import { logger } from '../utils/logger';
 
 export type EntryType = 'DEBIT' | 'CREDIT';
-export type EntryCategory = 'WINNING' | 'WITHDRAWAL' | 'DEPOSIT' | 'BONUS' | 'FEE' | 'REFUND';
+export type EntryCategory =
+  | 'WINNING'
+  | 'WITHDRAWAL'
+  | 'DEPOSIT'
+  | 'BONUS'
+  | 'FEE'
+  | 'REFUND'
+  | 'CARD_PURCHASE'
+  | 'TRUCO_BET_HOLD'
+  | 'TRUCO_WIN'
+  | 'TRUCO_REFUND'
+  | 'TRUCO_FEE';
 
 export class LedgerService {
   /**

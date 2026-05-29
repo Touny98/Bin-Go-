@@ -6,6 +6,21 @@ import { query } from '../../db';
 import { payoutQueue } from '../../queue';
 import { logger } from '../../utils/logger';
 
+function buildPlatformMenuButtons(): Pick<HandlerResponse, 'message' | 'buttons'> {
+  const text = Templates.MAIN_MENU();
+  return {
+    message: text,
+    buttons: {
+      text,
+      buttons: [
+        { id: 'bingo',      label: '🎡 Bingo' },
+        { id: 'play_truco', label: '🃏 Truco'  },
+      ],
+      footer: 'TIMBA — tu plataforma de juegos',
+    },
+  };
+}
+
 export class WithdrawalHandler extends BaseHandler {
   public async handle(
     session: UserSession,
@@ -14,24 +29,7 @@ export class WithdrawalHandler extends BaseHandler {
   ): Promise<HandlerResponse> {
 
     if (intent === 'CANCEL' || intent === 'GOTO_MENU') {
-      const text = Templates.MAIN_MENU();
-      return {
-        nextState: 'MAIN_MENU',
-        message: text,
-        list: {
-          text,
-          buttonLabel: 'Elegir juego',
-          title: 'BinGo! 🎰🃏',
-          footer: 'BinGo! — tu plataforma de juegos',
-          sections: [{
-            title: '¿A qué querés jugar?',
-            rows: [
-              { id: '1', title: '1 · 🎰 Bingo',  description: 'Salas en vivo'      },
-              { id: '2', title: '2 · 🃏 Truco', description: '1 vs 1 con apuestas' },
-            ],
-          }],
-        },
-      };
+      return { nextState: 'MAIN_MENU', ...buildPlatformMenuButtons() };
     }
 
     const { withdrawalStep, withdrawalAmount, withdrawalCbu } = session.context;
@@ -70,18 +68,13 @@ export class WithdrawalHandler extends BaseHandler {
       return {
         nextContext: { withdrawalStep: 'CONFIRM', withdrawalCbu: cbu },
         message: confirmText,
-        list: {
+        buttons: {
           text: confirmText,
-          buttonLabel: 'Confirmar',
-          title: 'Confirmar retiro',
-          footer: `Retiro de ${formatARS(withdrawalAmount)} — BinGo! 🎰`,
-          sections: [{
-            title: '¿Confirmás el retiro?',
-            rows: [
-              { id: 'si', title: '✅ Sí, confirmar', description: `Retirar ${formatARS(withdrawalAmount)} a ${cbu}` },
-              { id: 'no', title: '❌ Cancelar',      description: 'Volver sin retirar'                              },
-            ],
-          }],
+          buttons: [
+            { id: 'si', label: '✅ Confirmar' },
+            { id: 'no', label: '❌ Cancelar'  },
+          ],
+          footer: `Transferencia de ${formatARS(withdrawalAmount)} — TIMBA 🎡`,
         },
       };
     }
@@ -91,18 +84,13 @@ export class WithdrawalHandler extends BaseHandler {
         const confirmText = Templates.WITHDRAWAL_CONFIRM(withdrawalAmount, withdrawalCbu);
         return {
           message: confirmText,
-          list: {
+          buttons: {
             text: confirmText,
-            buttonLabel: 'Confirmar',
-            title: 'Confirmar retiro',
-            footer: `Retiro de ${formatARS(withdrawalAmount)} — BinGo! 🎰`,
-            sections: [{
-              title: '¿Confirmás el retiro?',
-              rows: [
-                { id: 'si', title: '✅ Sí, confirmar', description: `Retirar ${formatARS(withdrawalAmount)} a ${withdrawalCbu}` },
-                { id: 'no', title: '❌ Cancelar',      description: 'Volver sin retirar'                                        },
-              ],
-            }],
+            buttons: [
+              { id: 'si', label: '✅ Confirmar' },
+              { id: 'no', label: '❌ Cancelar'  },
+            ],
+            footer: `Transferencia de ${formatARS(withdrawalAmount)} — TIMBA 🎡`,
           },
         };
       }
@@ -139,19 +127,13 @@ export class WithdrawalHandler extends BaseHandler {
         nextState: 'MAIN_MENU',
         nextContext: { withdrawalStep: null, withdrawalAmount: null, withdrawalCbu: null },
         message: successText,
-        list: {
+        buttons: {
           text: successText,
-          buttonLabel: '¿Qué hacemos?',
-          title: 'Retiro solicitado ✅',
-          footer: 'BinGo! 🎰',
-          sections: [{
-            title: '¿Qué querés hacer ahora?',
-            rows: [
-              { id: '1',           title: '🎰 Ir al Bingo',      description: 'Ver salas disponibles'      },
-              { id: '2',           title: '🃏 Ir al Truco',       description: '1 vs 1 con apuestas'        },
-              { id: 'bingo_profile', title: '👤 Ver mi perfil',   description: 'Tu saldo actualizado'       },
-            ],
-          }],
+          buttons: [
+            { id: 'bingo',      label: '🎡 Ir al Bingo' },
+            { id: 'play_truco', label: '🃏 Ir al Truco'  },
+          ],
+          footer: 'TIMBA 🎡',
         },
       };
     }

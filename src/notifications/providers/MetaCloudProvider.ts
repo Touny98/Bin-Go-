@@ -1,24 +1,9 @@
-import { readFile } from 'fs/promises';
-import { extname } from 'path';
 import { WhatsAppProvider } from './WhatsAppProvider';
 import type { BingoButton, BingoListSection } from '../types/InteractiveMessage';
-import { whatsappInboundQueue } from '../../queue';
+import { whatsappInboundQueue, connection } from '../../queue';
 import { logger } from '../../utils/logger';
 
 const GRAPH_API_VERSION = 'v19.0';
-const MEDIA_CACHE_TTL_MS = 25 * 24 * 60 * 60 * 1000; // 25 días (Meta expira a los 30)
-
-const EXT_TO_MIME: Record<string, string> = {
-  '.jpg':  'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png':  'image/png',
-  '.webp': 'image/webp',
-  '.gif':  'image/gif',
-  '.ogg':  'audio/ogg',
-  '.mp3':  'audio/mpeg',
-  '.aac':  'audio/aac',
-  '.mp4':  'audio/mp4',
-};
 
 export class MetaCloudProvider implements WhatsAppProvider {
   private readonly token: string;
@@ -26,9 +11,6 @@ export class MetaCloudProvider implements WhatsAppProvider {
   private readonly apiUrl: string;
   private readonly uploadUrl: string;
   private readonly messageCallbacks: Array<(from: string, body: string) => Promise<void>> = [];
-
-  /** Cache: filePath → { mediaId, uploadedAt } — evita re-subir el mismo archivo */
-  private readonly mediaCache = new Map<string, { id: string; at: number }>();
 
   constructor() {
     this.token     = process.env.WA_TOKEN!;
@@ -47,10 +29,44 @@ export class MetaCloudProvider implements WhatsAppProvider {
     this.messageCallbacks.push(callback);
   }
 
-  /** Llamado por el webhook al recibir un mensaje de Meta */
-  public async handleIncoming(from: string, body: string): Promise<void> {
+  /**
+   * Llamado por el webhook al recibir un mensaje de Meta.
+   *
+   * `messageId` es el `message.id` de Meta (wamid…). Lo usamos para dedupear
+   * re-entregas del webhook (Meta reintenta si el ACK tarda) de dos formas
+   * complementarias: una marca en Redis (`wa:seen:*`) y el `jobId` de BullMQ.
+   * Sin esto, una re-entrega se procesaría dos veces y podría re-ejecutar una
+   * acción de juego.
+   */
+  public async handleIncoming(from: string, body: string, messageId?: string): Promise<void> {
     const phone = from.replace(/@.*$/, '');
-    await whatsappInboundQueue.add('inbound_message', { from: phone, input: body });
+
+    // Dedupe de ingreso: la primera vez que vemos este message.id seguimos; si
+    // ya lo procesamos (re-entrega de Meta), es no-op. TTL 10 min: cubre la
+    // ventana de reintentos de Meta sin acumular claves para siempre.
+    if (messageId) {
+      const fresh = await connection.set(`wa:seen:${messageId}`, '1', 'PX', 600_000, 'NX');
+      if (fresh !== 'OK') {
+        logger.info({ from: phone, messageId }, '[MetaCloudProvider] inbound duplicado ignorado');
+        return;
+      }
+    }
+
+    await whatsappInboundQueue.add(
+      'inbound_message',
+      { from: phone, input: body, messageId },
+      {
+        // jobId determinista (sin ':' — BullMQ lo usa como separador interno)
+        // → dedupe adicional a nivel cola. attempts:1: un fallo del handler NO
+        // debe re-ejecutar una acción ya aplicada (processMessage ya captura y
+        // responde ante error por su cuenta).
+        ...(messageId ? { jobId: `wa-${messageId}` } : {}),
+        attempts: 1,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      }
+    );
+
     for (const cb of this.messageCallbacks) {
       try { await cb(phone, body); } catch (e: any) {
         logger.error({ err: e.message }, '[MetaCloudProvider] Error en onMessage callback');
@@ -70,40 +86,6 @@ export class MetaCloudProvider implements WhatsAppProvider {
       to: normalize(to),
       type: 'text',
       text: { body: text, preview_url: false },
-    });
-  }
-
-  public async sendMedia(to: string, mediaUrl: string, caption?: string): Promise<boolean> {
-    return this.post({
-      messaging_product: 'whatsapp',
-      to: normalize(to),
-      type: 'image',
-      image: { link: mediaUrl, ...(caption && { caption }) },
-    });
-  }
-
-  /**
-   * Si recibe una URL pública la envía directo.
-   * Si recibe un path local, sube el archivo a Meta primero y envía con el media_id.
-   * El media_id se cachea 25 días para no re-subir el mismo archivo.
-   */
-  public async sendImage(to: string, mediaPath: string, caption?: string): Promise<boolean> {
-    if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
-      return this.sendMedia(to, mediaPath, caption);
-    }
-
-    const mime = EXT_TO_MIME[extname(mediaPath).toLowerCase()] ?? 'image/jpeg';
-    const mediaId = await this.uploadFromPath(mediaPath, mime);
-    if (!mediaId) {
-      logger.warn({ mediaPath }, '[MetaCloudProvider] Upload fallido — enviando caption como texto');
-      return caption ? this.sendText(to, caption) : false;
-    }
-
-    return this.post({
-      messaging_product: 'whatsapp',
-      to: normalize(to),
-      type: 'image',
-      image: { id: mediaId, ...(caption && { caption }) },
     });
   }
 
@@ -192,28 +174,10 @@ export class MetaCloudProvider implements WhatsAppProvider {
 
   // ── Media upload ───────────────────────────────────────────────────────────
 
-  /** Sube un archivo local con caché por path */
-  private async uploadFromPath(filePath: string, mimeType: string): Promise<string | null> {
-    const cached = this.mediaCache.get(filePath);
-    if (cached && Date.now() - cached.at < MEDIA_CACHE_TTL_MS) {
-      logger.debug({ filePath }, '[MetaCloudProvider] Media cache hit');
-      return cached.id;
-    }
-
-    try {
-      const buffer = await readFile(filePath);
-      return this.uploadBuffer(buffer, mimeType, filePath);
-    } catch (e: any) {
-      logger.error({ filePath, err: e.message }, '[MetaCloudProvider] Error leyendo archivo');
-      return null;
-    }
-  }
-
   /** Sube un Buffer a Meta y devuelve el media_id */
   private async uploadBuffer(
     buffer: Buffer,
     mimeType: string,
-    cacheKey?: string,
   ): Promise<string | null> {
     try {
       const form = new FormData();
@@ -238,9 +202,7 @@ export class MetaCloudProvider implements WhatsAppProvider {
 
       const { id } = await res.json() as { id: string };
 
-      if (cacheKey) this.mediaCache.set(cacheKey, { id, at: Date.now() });
-
-      logger.info({ mediaId: id, cacheKey }, '[MetaCloudProvider] Media subido OK');
+      logger.info({ mediaId: id }, '[MetaCloudProvider] Media subido OK');
       return id;
     } catch (e: any) {
       logger.error({ err: e.message }, '[MetaCloudProvider] Error de red en upload');

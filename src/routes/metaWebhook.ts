@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { metaCloudProvider } from '../notifications/providers/MetaCloudProvider';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -43,12 +44,19 @@ router.post('/', async (req: Request, res: Response) => {
         if (!input) continue;
 
         console.log(`[MetaWebhook] Mensaje de ${from}: ${input}`);
-        await metaCloudProvider.handleIncoming(from, input);
+        // msg.id (wamid…) habilita el dedupe de re-entregas aguas abajo.
+        await metaCloudProvider.handleIncoming(from, input, msg.id);
       }
 
-      // Loggear actualizaciones de estado (enviado, entregado, leído) sin bloquear
+      // Acuses de entrega (sent/delivered/read). Observabilidad únicamente:
+      // log estructurado correlacionado por message.id para depurar pérdidas
+      // de mensajes críticos. No dispara reenvíos (eso lo cubre el reprompt
+      // por timeout de turno del Truco).
       for (const status of statuses) {
-        console.log(`[MetaWebhook] Estado mensaje ${status.id}: ${status.status} (para ${status.recipient_id})`);
+        logger.info(
+          { messageId: status.id, status: status.status, to: status.recipient_id, ts: status.timestamp },
+          '[MetaWebhook] message status'
+        );
       }
     }
   }

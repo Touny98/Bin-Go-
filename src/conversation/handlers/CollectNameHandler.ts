@@ -22,7 +22,7 @@ export class CollectNameHandler extends BaseHandler {
       };
     }
 
-    const phone = session.userId.replace('@c.us', '').replace('@lid', '');
+    const phone = this.getPhone(session);
     await query('UPDATE users SET name = $1 WHERE phone_number = $2', [name, phone]);
 
     return {

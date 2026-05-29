@@ -175,4 +175,35 @@ router.get('/jackpot/audit', RBACService.checkPermission('view_rooms'), async (r
   }
 });
 
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+router.get('/users', RBACService.checkPermission('view_users'), async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT
+        COALESCE(NULLIF(u.real_phone, ''), u.phone_number) AS phone_number,
+        u.name,
+        u.last_name,
+        u.email,
+        u.onboarding_completed,
+        u.created_at,
+        COALESCE(w.real_balance, 0) + COALESCE(w.bonus_balance, 0) AS balance,
+        (SELECT COUNT(*) FROM cards c
+          JOIN game_sessions gs ON gs.id = c.game_session_id
+          WHERE c.user_id = u.id AND gs.status IN ('COMPLETED','FINISHED')) AS bingo_games,
+        (SELECT COUNT(*) FROM truco_matches tm
+          WHERE (tm.player_a_phone = SPLIT_PART(u.phone_number, '@', 1)
+              OR tm.player_b_phone = SPLIT_PART(u.phone_number, '@', 1))
+          AND tm.status IN ('PAYOUT_DONE','GAME_OVER')) AS truco_games
+      FROM users u
+      LEFT JOIN wallets w ON w.user_id = SPLIT_PART(u.phone_number, '@', 1)
+      ORDER BY u.created_at DESC
+      LIMIT 500
+    `);
+    res.json(result.rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 export default router;

@@ -7,6 +7,7 @@ import type { ButtonsPayload } from '../../notifications/types/InteractiveMessag
 import { query } from '../../db';
 import { logger } from '../../utils/logger';
 import { TrucoMatchmakingService } from '../../domain/truco/TrucoMatchmakingService';
+import { TrucoMatchService } from '../../domain/truco/TrucoMatchService';
 import { TrucoSettlementService } from '../../finance/TrucoSettlementService';
 import { TrucoGameOrchestrator } from '../../domain/truco/TrucoGameOrchestrator';
 import { TrucoNotifier } from './TrucoNotifier';
@@ -26,7 +27,7 @@ const TRUCO_TABLES: TrucoTable[] = [
 
 const FEE_PCT = parseFloat(process.env.TRUCO_FEE_PCT || '') || 0.10;
 
-function buildMainMenu(): Pick<HandlerResponse, 'message' | 'buttons'> {
+export function buildMainMenu(): Pick<HandlerResponse, 'message' | 'buttons'> {
   const text = TrucoMsg.TRUCO_MAIN_MENU();
   return {
     message: text,
@@ -55,7 +56,7 @@ function buildMainMenuFollowUp(): ButtonsPayload {
   };
 }
 
-function buildRoomList(): Pick<HandlerResponse, 'message' | 'list'> {
+export function buildRoomList(): Pick<HandlerResponse, 'message' | 'list'> {
   const text = `🎡 *MESAS DISPONIBLES*\n\nElegí la mesa que querés jugar:`;
   return {
     message: text,
@@ -77,7 +78,7 @@ function buildRoomList(): Pick<HandlerResponse, 'message' | 'list'> {
   };
 }
 
-function trucoNavFollowUp(): ButtonsPayload {
+export function trucoNavFollowUp(): ButtonsPayload {
   return {
     text: '⚙️',
     buttons: [
@@ -261,7 +262,11 @@ export class TrucoLobbyHandler extends BaseHandler {
         nextState: 'TRUCO_LOBBY',
         nextContext: {},
         message: depositText,
-        followUp: buildMainMenuFollowUp(),
+        buttons: {
+          text: depositText,
+          buttons: [{ id: 'truco_back', label: '❌ Cancelar' }],
+          footer: 'TIMBA 🃏',
+        },
       };
     } catch (e: any) {
       logger.error({ err: e.message, phone, amount }, '[TrucoLobby] createDepositLink failed');
@@ -334,10 +339,20 @@ export class TrucoLobbyHandler extends BaseHandler {
         message: '❌ No se pudo bloquear el saldo. Probá de nuevo.',
       };
     }
-    const desc = await TrucoGameOrchestrator.dealNewHand(match.id);
-    await TrucoNotifier.pushTurnDescriptor(desc);
+    // dealNewHand puede haber sido ejecutado ya por el matchmaking worker
+    // (orphan recovery) si nuestro lobby llegó después. En ese caso no hace
+    // falta repetirlo. Verificamos: si el match ya tiene current_hand_id,
+    // el reparto ya se hizo y los push messages ya viajaron.
+    const fresh = await TrucoMatchService.getMatch(match.id);
+    if (fresh && !fresh.current_hand_id) {
+      const desc = await TrucoGameOrchestrator.dealNewHand(match.id);
+      await TrucoNotifier.pushTurnDescriptor(desc);
+    }
 
+    // `silent`: los push messages (MATCH_FOUND + cartas/turno) ya cubrieron
+    // al usuario. Sin esto el orchestrator enviaría el fallback "No entendí".
     return {
+      silent: true,
       nextState: 'TRUCO_PLAYING',
       nextContext: { matchId: match.id, resolvedPhone: phone },
     };

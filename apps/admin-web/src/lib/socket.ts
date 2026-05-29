@@ -1,6 +1,9 @@
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3000';
+// Conectar al mismo origen del panel admin (vacío = origen actual del browser).
+// Next.js reescribe /socket.io/* → http://app:3010/socket.io/* en el servidor,
+// por lo que funciona tanto en localhost como a través de cualquier túnel ngrok.
+const SOCKET_URL = typeof window !== 'undefined' ? window.location.origin : '';
 
 class SocketClient {
   private static instance: Socket | null = null;
@@ -8,6 +11,7 @@ class SocketClient {
   public static getInstance(): Socket {
     if (!this.instance) {
       this.instance = io(SOCKET_URL, {
+        path: '/socket.io',
         reconnectionAttempts: 10,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,

@@ -3,6 +3,7 @@ import { logger } from '../utils/logger';
 import { BingoEngine } from '../engine/BingoGame';
 import { MercadoPagoService } from '../services/MercadoPagoService';
 import { reservationExpireQueue } from '../queue';
+import { WalletEngine } from '../finance/WalletEngine';
 
 export class CardReservationService {
   public static async reserveCards(
@@ -169,6 +170,130 @@ export class CardReservationService {
     return mpPref;
   }
 
+  /**
+   * Reserva cartones y los paga instantáneamente usando el saldo de la billetera del usuario.
+   * No requiere MercadoPago. Los cartones quedan activos de inmediato.
+   */
+  public static async reserveAndPayWithWallet(
+    userId: string | number,
+    gameId: number,
+    quantity: number,
+    pricePerCard: number
+  ): Promise<void> {
+    logger.info({ userId, gameId, quantity }, `[CardReservationService] Wallet payment initiated`);
+
+    // Resolver userId interno igual que reserveCards
+    let internalUserId: number;
+    let phoneStr: string;
+    const fullJid = typeof userId === 'string' ? userId : null;
+    if (typeof userId === 'string') {
+      phoneStr = userId.replace(/@c\.us$/, '').replace(/@lid$/, '');
+    } else {
+      phoneStr = userId.toString();
+    }
+
+    const userRes = await query('SELECT id FROM users WHERE phone_number = $1', [phoneStr]);
+    if (userRes.rows.length > 0) {
+      internalUserId = userRes.rows[0].id;
+      if (fullJid) await query('UPDATE users SET whatsapp_jid = $1 WHERE id = $2', [fullJid, internalUserId]);
+    } else {
+      const insertRes = await query(
+        'INSERT INTO users (phone_number, whatsapp_jid) VALUES ($1, $2) RETURNING id',
+        [phoneStr, fullJid]
+      );
+      internalUserId = insertRes.rows[0].id;
+    }
+
+    // Verificar sesión
+    const sessionCheck = await query(
+      `SELECT gs.status, gs.jackpot_amount, gs.room_id,
+              r.platform_fee, r.jackpot_fee, r.game_mode
+       FROM game_sessions gs
+       JOIN rooms r ON r.id = gs.room_id
+       WHERE gs.id = $1 AND gs.status IN ('CREATED', 'READY')`,
+      [gameId]
+    );
+    if (sessionCheck.rows.length === 0) throw new Error('La sala ya no acepta más compras.');
+
+    const { platform_fee, jackpot_fee, room_id, game_mode } = sessionCheck.rows[0];
+    const total = quantity * pricePerCard;
+    const jackpotContribution = quantity * parseFloat(jackpot_fee);
+    const platformRevenue = quantity * parseFloat(platform_fee);
+
+    // Verificar saldo antes de operar (el WalletEngine también lo verifica con FOR UPDATE, pero chequeo temprano)
+    const walletRes = await query('SELECT real_balance FROM wallets WHERE user_id = $1', [phoneStr]);
+    const balance = parseFloat(walletRes.rows[0]?.real_balance ?? '0');
+    if (balance < total) throw new Error(`Saldo insuficiente. Tenés ${balance} y necesitás ${total}.`);
+
+    // Generar cartones únicos
+    const { cols, rows, maxNumber } = BingoEngine.getCardDimensions(game_mode ?? 'SALE_O_SALE');
+    const existingRes = await query(
+      `SELECT matrix FROM cards WHERE game_session_id = $1 AND status NOT IN ('cancelled')`,
+      [gameId]
+    );
+    const usedMatrices = new Set<string>(existingRes.rows.map((r: any) => JSON.stringify(r.matrix)));
+    const cardsData: any[] = [];
+    for (let i = 0; i < quantity; i++) {
+      let card: (number | null)[][];
+      let attempts = 0;
+      do {
+        card = BingoEngine.generateSimpleCard(cols, rows, maxNumber);
+        attempts++;
+      } while (usedMatrices.has(JSON.stringify(card)) && attempts < 200);
+      usedMatrices.add(JSON.stringify(card));
+      cardsData.push(card);
+    }
+
+    const externalRef = `WALLET_${Date.now()}_${phoneStr}_${gameId}`;
+    const insertedCardIds: number[] = [];
+    const reservationIds: number[] = [];
+
+    for (const matrix of cardsData) {
+      const cardRes = await query(
+        `INSERT INTO cards (user_id, game_session_id, matrix, status)
+         VALUES ($1, $2, $3, 'active') RETURNING id`,
+        [internalUserId, gameId, JSON.stringify(matrix)]
+      );
+      const cardId = cardRes.rows[0].id;
+      insertedCardIds.push(cardId);
+
+      const resResult = await query(
+        `INSERT INTO card_reservations (game_id, user_id, card_id, status, payment_id, expires_at)
+         VALUES ($1, $2, $3, 'PAID', $4, NOW() + INTERVAL '30 days') RETURNING id`,
+        [gameId, internalUserId, cardId, externalRef]
+      );
+      reservationIds.push(resResult.rows[0].id);
+    }
+
+    // Actualizar jackpot
+    const balanceBefore = parseFloat(sessionCheck.rows[0].jackpot_amount);
+    const balanceAfter = balanceBefore + jackpotContribution;
+    await query('UPDATE game_sessions SET jackpot_amount = $1 WHERE id = $2', [balanceAfter, gameId]);
+
+    const isoWeek = getISOWeek(new Date());
+    for (const cardId of insertedCardIds) {
+      await query(
+        `INSERT INTO jackpot_audit
+           (session_id, room_id, event_type, amount, card_id, user_id, balance_before, balance_after, week_number)
+         VALUES ($1,$2,'CONTRIBUTION',$3,$4,$5,$6,$7,$8)`,
+        [gameId, room_id, parseFloat(jackpot_fee), cardId, internalUserId, balanceBefore, balanceAfter, isoWeek]
+      );
+    }
+
+    // Debitar saldo del usuario (registra entrada CARD_PURCHASE en ledger — es el ingreso real)
+    // No se registra FEE por separado: la comisión ya está incluida en el monto total debitado.
+    await WalletEngine.debit(phoneStr, total, 'CARD_PURCHASE', externalRef);
+
+    // Registrar FEE como nota contable interna (no es ingreso adicional, es desglose de la comisión)
+    await query(
+      `INSERT INTO ledger_entries (wallet_id, entry_type, category, amount, reference_id, metadata)
+       VALUES ('platform','CREDIT','FEE',$1,$2,$3)`,
+      [platformRevenue, externalRef, JSON.stringify({ userId, gameId, quantity, method: 'WALLET', note: 'comision_incluida_en_CARD_PURCHASE' })]
+    );
+
+    logger.info({ userId, gameId, externalRef, quantity }, `[CardReservationService] Wallet payment completed, cards activated`);
+  }
+
   public static async confirmPayment(externalRef: string): Promise<boolean> {
     logger.info({ externalRef }, `[CardReservationService] Confirming payment`);
 
@@ -203,24 +328,39 @@ export class CardReservationService {
     return true;
   }
 
-  public static async expireReservation(reservationId: number): Promise<void> {
+  /**
+   * Expira una reserva sin pagar.
+   * Devuelve el whatsapp_jid del usuario para que el worker pueda notificarlo,
+   * o null si la reserva ya no estaba en estado RESERVED.
+   */
+  public static async expireReservation(reservationId: number): Promise<string | null> {
     const res = await query(
-      `SELECT status, card_id FROM card_reservations WHERE id = $1`,
+      `SELECT cr.status, cr.card_id, cr.user_id
+       FROM card_reservations cr
+       WHERE cr.id = $1`,
       [reservationId]
     );
-    if (res.rows.length === 0) return;
+    if (res.rows.length === 0) return null;
+    if (res.rows[0].status !== 'RESERVED') return null;
 
-    if (res.rows[0].status === 'RESERVED') {
-      logger.info({ reservationId }, `[CardReservationService] Expiring reservation`);
-      await query(
-        `UPDATE card_reservations SET status = 'EXPIRED' WHERE id = $1`,
-        [reservationId]
-      );
-      await query(
-        `UPDATE cards SET status = 'cancelled' WHERE id = $1`,
-        [res.rows[0].card_id]
-      );
-    }
+    logger.info({ reservationId }, `[CardReservationService] Expiring reservation`);
+
+    await query(
+      `UPDATE card_reservations SET status = 'EXPIRED' WHERE id = $1`,
+      [reservationId]
+    );
+    await query(
+      `UPDATE cards SET status = 'cancelled' WHERE id = $1`,
+      [res.rows[0].card_id]
+    );
+
+    // Devolver el JID del usuario para notificación
+    const userRes = await query(
+      `SELECT COALESCE(whatsapp_jid, phone_number || '@c.us') as chat_id
+       FROM users WHERE id = $1`,
+      [res.rows[0].user_id]
+    );
+    return userRes.rows[0]?.chat_id ?? null;
   }
 }
 

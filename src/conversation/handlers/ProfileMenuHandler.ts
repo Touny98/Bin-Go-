@@ -2,22 +2,45 @@ import { BaseHandler, HandlerResponse } from './BaseHandler';
 import { UserSession } from '../SessionStore';
 import { IntentType } from '../IntentRouter';
 import { Templates } from '../templates/MessageTemplates';
+import type { ButtonsPayload } from '../../notifications/types/InteractiveMessage';
 import { query } from '../../db';
 import { buildCardBlock, getNearWinThreshold } from '../../utils/cardFormatter';
 
-function buildProfileList(profileText: string): HandlerResponse['list'] {
+function buildProfileButtons(profileText: string): HandlerResponse['buttons'] {
   return {
     text: profileText,
-    buttonLabel: 'Elegir opción',
-    title: 'Mi Perfil 👤',
-    footer: 'BinGo! 🎰',
-    sections: [{
-      title: '¿Qué querés hacer?',
-      rows: [
-        { id: '1', title: '💳 Retirar dinero',   description: 'Transferí fondos a tu cuenta' },
-        { id: '2', title: '🎟️ Ver mis cartones', description: 'Tus cartones activos'         },
+    buttons: [
+      { id: '1', label: '💳 Transferir saldo' },
+      { id: '2', label: '🎟️ Mis cartones'    },
+    ],
+    footer: 'TIMBA 🎡',
+  };
+}
+
+function bingoNavFollowUp(): ButtonsPayload {
+  return {
+    text: '¿Qué más querés hacer?',
+    buttons: [
+      { id: 'atras',        label: '⬅️ Volver atrás'    },
+      { id: 'bingo_switch', label: '🔄 Cambiar de juego' },
+    ],
+    footer: 'TIMBA 🎡',
+  };
+}
+
+function buildBingoMenuButtons(): Pick<HandlerResponse, 'message' | 'buttons'> {
+  const text = Templates.BINGO_MAIN_MENU();
+  return {
+    message: text,
+    buttons: {
+      text,
+      buttons: [
+        { id: 'bingo_rooms',   label: '🎡 Ver Salas'        },
+        { id: 'bingo_profile', label: '👤 Mi Perfil'         },
+        { id: 'bingo_switch',  label: '🔄 Cambiar de juego'  },
       ],
-    }],
+      footer: 'TIMBA — tu plataforma de juegos',
+    },
   };
 }
 
@@ -31,27 +54,7 @@ export class ProfileMenuHandler extends BaseHandler {
     const text = rawInput.trim();
 
     if (text === '0' || text === 'atrás' || text === 'atras' || text === 'volver' || intent === 'GOTO_MENU') {
-      const bingoMenuText = Templates.BINGO_MAIN_MENU();
-      return {
-        nextState: 'BINGO_MENU',
-        nextContext: {},
-        message: bingoMenuText,
-        list: {
-          text: bingoMenuText,
-          buttonLabel: 'Elegir opción',
-          title: 'BinGo! 🎰',
-          footer: 'BinGo! — tu plataforma de juegos',
-          sections: [{
-            title: '¿Qué querés hacer?',
-            rows: [
-              { id: 'bingo_rooms',   title: '1. Ver Salas Disponibles 🎰',  description: 'Explorá las salas activas y próximas'      },
-              { id: 'bingo_buy',     title: '2. Comprar Cartones 🎟️',       description: 'Comprá cartones para la próxima sala'      },
-              { id: 'bingo_profile', title: '3. Ver mi Perfil 👤',           description: 'Tu saldo, cartones activos y retiros'      },
-              { id: 'bingo_switch',  title: '4. Cambiar de juego 🔄',       description: 'Volver al menú principal de la plataforma' },
-            ],
-          }],
-        },
-      };
+      return { nextState: 'BINGO_MENU', nextContext: {}, ...buildBingoMenuButtons() };
     }
 
     if (text === '1') {
@@ -64,11 +67,11 @@ export class ProfileMenuHandler extends BaseHandler {
 
       if (balance <= 0) {
         return {
-          message: `❌ No tenés saldo disponible para retirar.\n\nEscribí *atrás* para volver al perfil.`,
+          message: `❌ No tenés saldo disponible para transferir.\n\nEscribí *atrás* para volver al perfil.`,
           buttons: {
-            text: `❌ No tenés saldo disponible para retirar.`,
+            text: `❌ No tenés saldo disponible para transferir.`,
             buttons: [{ id: '0', label: '🔙 Volver al perfil' }],
-            footer: 'BinGo! 🎰',
+            footer: 'TIMBA 🎡',
           },
         };
       }
@@ -87,7 +90,7 @@ export class ProfileMenuHandler extends BaseHandler {
 
       if (!userId) return {
         message: `❌ No pudimos identificar tu usuario.\n\nEscribí *0* para volver.`,
-        buttons: { text: `❌ No pudimos identificar tu usuario.`, buttons: [{ id: '0', label: '🔙 Volver' }], footer: 'BinGo! 🎰' },
+        buttons: { text: `❌ No pudimos identificar tu usuario.`, buttons: [{ id: '0', label: '🔙 Volver' }], footer: 'TIMBA 🎡' },
       };
 
       const cardsRes = await query(`
@@ -111,10 +114,10 @@ export class ProfileMenuHandler extends BaseHandler {
           buttons: {
             text: `🎟️ No tenés cartones activos en este momento.`,
             buttons: [
-              { id: 'bingo_rooms', label: '🎰 Comprar cartones' },
+              { id: 'bingo_rooms', label: '🎡 Comprar cartones' },
               { id: '0',           label: '🔙 Volver al perfil'  },
             ],
-            footer: 'BinGo! 🎰',
+            footer: 'TIMBA 🎡',
           },
         };
       }
@@ -132,7 +135,7 @@ export class ProfileMenuHandler extends BaseHandler {
 
         msg += `*Cartón #${row.id}* — ${row.room_name}\n`;
         if (scheduledAt) {
-          msg += `🕐 Sorteo: ${scheduledAt.toLocaleString('es-AR', {
+          msg += `🕐 Evento: ${scheduledAt.toLocaleString('es-AR', {
             timeZone: 'America/Argentina/Buenos_Aires',
             weekday: 'long', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit',
           })}\n`;
@@ -145,10 +148,10 @@ export class ProfileMenuHandler extends BaseHandler {
         buttons: {
           text: msg,
           buttons: [
-            { id: 'bingo_rooms', label: '🎰 Comprar más' },
+            { id: 'bingo_rooms', label: '🎡 Comprar más' },
             { id: '0',           label: '🔙 Volver al perfil' },
           ],
-          footer: 'BinGo! 🎰',
+          footer: 'TIMBA 🎡',
         },
       };
     }
@@ -169,6 +172,6 @@ export class ProfileMenuHandler extends BaseHandler {
     const name = data?.name || null;
     const profileText = Templates.PROFILE(phone, name, balance, activeCards);
 
-    return { message: profileText, list: buildProfileList(profileText) };
+    return { message: profileText, buttons: buildProfileButtons(profileText), followUp: bingoNavFollowUp() };
   }
 }

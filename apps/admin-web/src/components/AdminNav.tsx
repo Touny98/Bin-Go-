@@ -12,6 +12,8 @@ import {
   Menu,
   X,
   Zap,
+  Swords,
+  Users,
 } from 'lucide-react';
 
 const navItems = [
@@ -38,6 +40,18 @@ const navItems = [
     label: 'Salas',
     icon: LayoutDashboard,
     description: 'Gestión de salas',
+  },
+  {
+    href: '/truco',
+    label: 'Truco',
+    icon: Swords,
+    description: 'Partidas y ranking',
+  },
+  {
+    href: '/users',
+    label: 'Usuarios',
+    icon: Users,
+    description: 'Datos y saldos',
   },
 ];
 

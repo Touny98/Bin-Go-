@@ -1,37 +1,55 @@
 /**
  * cardFormatter.ts
- * Shared card rendering utility for WhatsApp messages.
- * Produces a box-drawing bordered card that renders cleanly
- * inside WhatsApp code blocks (```...```).
+ *
+ * Celda de número:  " 08 " — espacio + número zero-padded + espacio (4 chars)
+ * Celda de emoji:   " ✅"  — 1 espacio + emoji wide (3 cols en WhatsApp) = 4 cols visuales
+ *                   " 🔥"  — ídem
+ * Celda vacía:      "    " — 4 espacios
+ * Borde:            "═" × (cols×5−4) — 3 chars menos que la fila de contenido (cols×5+1)
+ *
+ * Diseño (4 cols):
+ *   ╔════════════════╗       ← 18 chars  (cols×5−4 + 2 esquinas)
+ *   ║ 08 ║ 17 ║ 29 ║ 41 ║  ← 21 chars  (cols×5+1)
+ *   ╠════════════════╣
+ *   " 08 " → número pendiente  (espacio + número + espacio)
+ *   " ✅"   → salido normal     (espacio + emoji — sin espacio final)
+ *   " 🔥"   → casi bingo        (espacio + emoji — sin espacio final)
+ *   ╚════════════════╝
  */
 
-/**
- * Returns the "near-win" threshold for a given room:
- * - Sale o Sale  (max_balls = 45): fire when ≤ 3 remaining
- * - La Diaria    (max_balls = 60): fire when ≤ 4 remaining
- * - Domingo Millonario (ACCUMULATIVE): fire when ≤ 5 remaining
- */
 export function getNearWinThreshold(gameMode: string, maxBalls: number): number {
-  if (gameMode === 'ACCUMULATIVE') return 5;
-  if (maxBalls >= 60)              return 4; // La Diaria
-  return 3;                                  // Sale o Sale
+  if (gameMode === 'ACCUMULATIVE') return 5;  // Domingo Millonario
+  if (maxBalls >= 60)              return 4;  // La Diaria
+  return 3;                                   // Sale o Sale
+}
+
+export function isCardNearWin(
+  matrix: (number | null)[][],
+  drawnSet: Set<number>,
+  threshold: number,
+): boolean {
+  if (drawnSet.size === 0 || threshold === 0) return false;
+  const remaining = matrix.flat().filter(n => n !== null && !drawnSet.has(n)).length;
+  return remaining > 0 && remaining <= threshold;
 }
 
 /**
- * Renders a bingo card with Unicode box-drawing borders.
+ * Renderiza el cartón con bordes doble línea y celdas de 4 cols visuales:
+ *   " 08 " → número pendiente  (espacio + número + espacio)
+ *   " ✅"   → salido normal     (espacio + emoji)
+ *   " 🔥"   → casi bingo        (espacio + emoji)
+ *   "    " → celda vacía        (4 espacios)
  *
- * Cell states:
- *   - Not drawn  →  " 08 "  (zero-padded, 2 digits, framed by spaces)
- *   - Drawn, not near win  →  " ✅ "
- *   - Drawn, near win (remaining ≤ nearWinThreshold)  →  " 🔥 "
- *   - Null / blank  →  "    "  (4 spaces)
- *
- * Example output (5 cols):
- *   ╔════╦════╦════╦════╦════╗
- *   ║ 08 ║ 17 ║ 29 ║ 41 ║ 77 ║
- *   ╠════╬════╬════╬════╬════╣
- *   ║ ✅ ║ 13 ║ 🔥 ║ 58 ║ 69 ║
- *   ╚════╩════╩════╩════╩════╝
+ * Ejemplo 4 columnas:
+ *   ╔════════════════╗
+ *   ║ 08 ║ 17 ║ 29 ║ 41 ║
+ *   ╠════════════════╣
+ *   ║ ✅║ 13 ║ 35 ║ 58 ║
+ *   ╠════════════════╣
+ *   ║ 12 ║ 27 ║ 54 ║ 83 ║
+ *   ╠════════════════╣
+ *   ║ 06 ║ ✅║ 39 ║ 66 ║
+ *   ╚════════════════╝
  */
 export function buildCardBlock(
   matrix: (number | null)[][],
@@ -39,29 +57,23 @@ export function buildCardBlock(
   nearWinThreshold = 0,
 ): string {
   const cols = matrix[0]?.length ?? 4;
+  const nearWin = isCardNearWin(matrix, drawnSet, nearWinThreshold);
 
-  // How many numbers on this card are still undrawn?
-  const remaining = matrix
-    .flat()
-    .filter(n => n !== null && !drawnSet.has(n)).length;
-
-  const useFlame =
-    drawnSet.size > 0 && remaining > 0 && remaining <= nearWinThreshold;
-  const drawnMarker = useFlame ? '🔥' : '✅';
-
-  // Each cell occupies 4 visual characters: " XX " or " ✅ " etc.
-  const seg = '════'; // 4 × ═
-  const top = '╔' + Array(cols).fill(seg).join('╦') + '╗';
-  const mid = '╠' + Array(cols).fill(seg).join('╬') + '╣';
-  const bot = '╚' + Array(cols).fill(seg).join('╩') + '╝';
+  // Bordes sólidos: una línea continua sin conectores internos (╦╬╩)
+  // Fila de contenido mide cols×5 + 1 chars. Los bordes tienen 3 chars menos en total,
+  // es decir (cols×5 + 1) - 3 = cols×5 - 2 chars totales → hline = cols×5 - 4 (sin las 2 esquinas)
+  const hline = '═'.repeat(cols * 5 - 4);
+  const top = '╔' + hline + '╗';
+  const mid = '╠' + hline + '╣';
+  const bot = '╚' + hline + '╝';
 
   const lines: string[] = [top];
 
   for (let r = 0; r < matrix.length; r++) {
     const cells = matrix[r].map(n => {
-      if (n === null)      return '    ';                          // blank
-      if (drawnSet.has(n)) return ` ${drawnMarker} `;             // drawn marker
-      return ` ${String(n).padStart(2, '0')} `;                   // undrawn number
+      if (n === null)        return '    ';                               // 4 espacios
+      if (!drawnSet.has(n)) return ' ' + String(n).padStart(2, '0') + ' '; // " 08 " (4 chars)
+      return nearWin ? ' 🔥' : ' ✅';                                         // espacio + emoji (4 cols visuales)
     });
     lines.push('║' + cells.join('║') + '║');
     if (r < matrix.length - 1) lines.push(mid);

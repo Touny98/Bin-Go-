@@ -120,8 +120,8 @@ export default function LiveOpsPage() {
           workers={[
             {
               id: 'worker-1',
-              type: 'Realtime Gateway',
-              health: metrics?.system.redisHealth === 'OK' ? 'HEALTHY' : 'DEGRADED',
+              type: 'Gateway en Tiempo Real',
+              health: metrics?.system.redisHealth === 'healthy' ? 'HEALTHY' : 'DEGRADED',
               uptime: 12450,
               jobsPerSec: 45.2,
               queueLag: 12,
@@ -131,11 +131,11 @@ export default function LiveOpsPage() {
             },
             {
               id: 'worker-2',
-              type: 'Payout Processor',
-              health: 'HEALTHY',
+              type: 'Procesador de Retiros',
+              health: metrics?.health?.db ? 'HEALTHY' : 'DEGRADED',
               uptime: 86400,
               jobsPerSec: 2.1,
-              queueLag: 150,
+              queueLag: metrics?.queueDepths?.payout ?? 0,
               retries: 0,
               memoryUsage: 124.5,
               lastHeartbeat: new Date().toISOString()

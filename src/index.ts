@@ -9,14 +9,13 @@ import client from 'prom-client';
 
 import paymentRoutes from './routes/paymentRoutes';
 import authRoutes from './routes/authRoutes';
-import whatsappQrRoutes from './routes/whatsappQr';
 import testRoutes from './routes/testRoutes';
 import metaWebhookRoutes from './routes/metaWebhook';
 import { adminAuthMiddleware } from './middleware/adminAuth';
 import {
   gameStartQueue, ballDrawQueue, whatsappInboundQueue,
   notifyHighQueue, notifyBulkQueue, paymentConfirmationQueue,
-  reservationExpireQueue, fraudQueue, renderQueue, mediaCleanupQueue,
+  reservationExpireQueue, fraudQueue,
   campaignQueue, payoutQueue, reconciliationQueue,
   trucoMatchmakingQueue, trucoTurnTimeoutQueue, trucoPayoutQueue
 } from './queue';
@@ -65,8 +64,6 @@ createBullBoard({
     new BullMQAdapter(gameStartQueue),
     new BullMQAdapter(ballDrawQueue),
     new BullMQAdapter(whatsappInboundQueue),
-    new BullMQAdapter(renderQueue),
-    new BullMQAdapter(mediaCleanupQueue),
     new BullMQAdapter(notifyHighQueue),
     new BullMQAdapter(notifyBulkQueue),
     new BullMQAdapter(paymentConfirmationQueue),
@@ -102,9 +99,6 @@ app.get('/metrics', async (req, res) => {
 
 app.use('/api/payments', paymentRoutes);
 
-// WhatsApp QR (public)
-app.use('/whatsapp', whatsappQrRoutes);
-
 // Meta Cloud API webhook (público — Meta no envía auth header)
 app.use('/webhook/meta', metaWebhookRoutes);
 
@@ -122,7 +116,7 @@ app.use('/api/admin/finance', adminFinanceRoutes);
 app.use('/api/admin/truco', adminTrucoRoutes);
 
 app.get('/', (req, res) => {
-  res.send('Bingo! API is running. WhatsApp is connected via QR.');
+  res.send('TIMBA API is running.');
 });
 
 const httpServer = createServer(app);

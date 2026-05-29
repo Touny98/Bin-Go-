@@ -3,25 +3,20 @@ import { UserSession } from '../SessionStore';
 import { IntentType } from '../IntentRouter';
 import { Templates } from '../templates/MessageTemplates';
 
-const MAIN_MENU_LIST = (): Pick<HandlerResponse, 'message' | 'list'> => {
+function buildPlatformMenuButtons(): Pick<HandlerResponse, 'message' | 'buttons'> {
   const text = Templates.MAIN_MENU();
   return {
     message: text,
-    list: {
+    buttons: {
       text,
-      buttonLabel: 'Elegir juego',
-      title: 'BinGo! 🎰🃏',
-      footer: 'BinGo! — tu plataforma de juegos',
-      sections: [{
-        title: '¿A qué querés jugar?',
-        rows: [
-          { id: '1', title: '1 · 🎰 Bingo',  description: 'Salas en vivo'      },
-          { id: '2', title: '2 · 🃏 Truco', description: '1 vs 1 con apuestas' },
-        ],
-      }],
+      buttons: [
+        { id: 'bingo',      label: '🎡 Bingo' },
+        { id: 'play_truco', label: '🃏 Truco'  },
+      ],
+      footer: 'TIMBA — tu plataforma de juegos',
     },
   };
-};
+}
 
 export class PaymentWaitHandler extends BaseHandler {
   public async handle(
@@ -31,7 +26,7 @@ export class PaymentWaitHandler extends BaseHandler {
   ): Promise<HandlerResponse> {
 
     if (intent === 'CANCEL' || intent === 'GOTO_MENU') {
-      return { nextState: 'MAIN_MENU', nextContext: {}, ...MAIN_MENU_LIST() };
+      return { nextState: 'MAIN_MENU', nextContext: {}, ...buildPlatformMenuButtons() };
     }
 
     const paymentUrl = session.context?.paymentUrl;
@@ -44,7 +39,7 @@ export class PaymentWaitHandler extends BaseHandler {
       buttons: {
         text,
         buttons: [{ id: 'no', label: '❌ Cancelar reserva' }],
-        footer: 'BinGo! 🎰',
+        footer: 'TIMBA 🎡',
       },
     };
   }

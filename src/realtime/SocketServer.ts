@@ -34,6 +34,12 @@ export class SocketServer {
       socket.join('global');
       PresenceService.trackConnection(userId);
 
+      // Admin dashboard room
+      socket.on('join_room', (roomName: string) => {
+        socket.join(roomName);
+        logger.debug({ userId, roomName }, '[SocketServer] Socket joined room');
+      });
+
       socket.on('join_game', async (gameId: string) => {
         socket.join(`game:${gameId}`);
         await PresenceService.trackConnection(userId, gameId);

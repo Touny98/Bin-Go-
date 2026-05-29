@@ -31,7 +31,4 @@ export class WhatsAppService {
     return whatsAppProvider.sendMessage(to, text);
   }
 
-  public static async sendMediaMessage(to: string, text: string, mediaPath: string): Promise<boolean> {
-    return whatsAppProvider.sendImage(to, mediaPath, text);
-  }
 }

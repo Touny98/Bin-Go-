@@ -6,17 +6,13 @@ import { logger } from '../utils/logger';
 export const whatsappWorker = new Worker(
   'whatsappOutboundQueue',
   async (job) => {
-    const { to, text, mediaPath } = job.data;
+    const { to, text } = job.data;
     const logContext = { jobId: job.id, to };
 
     logger.info(logContext, `[WhatsAppWorker] Processing outgoing message`);
 
     try {
-      if (mediaPath) {
-        await WhatsAppService.sendMediaMessage(to, text, mediaPath);
-      } else {
-        await WhatsAppService.sendTextMessage(to, text);
-      }
+      await WhatsAppService.sendTextMessage(to, text);
       logger.info(logContext, `[WhatsAppWorker] Message sent successfully`);
     } catch (error: any) {
       logger.error({ ...logContext, error: error.message }, `[WhatsAppWorker] Failed to send message`);

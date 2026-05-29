@@ -28,13 +28,14 @@ export class WorkerFactory {
       await import('../workers/NotificationWorker');
     }
 
-    if (mode === 'ALL' || mode === 'MEDIA') {
-      await import('../workers/RenderWorker');
-      await import('../workers/MediaCleanupWorker');
-    }
-
     if (mode === 'ALL' || mode === 'GROWTH') {
       await import('../workers/CampaignWorker');
+    }
+
+    if (mode === 'ALL' || mode === 'TRUCO') {
+      await import('../workers/TrucoMatchmakingWorker');
+      await import('../workers/TrucoTurnTimeoutWorker');
+      await import('../workers/TrucoPayoutWorker');
     }
   }
 }

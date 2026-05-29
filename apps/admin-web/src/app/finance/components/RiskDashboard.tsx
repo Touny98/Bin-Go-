@@ -18,11 +18,11 @@ import {
 import { ShieldAlert, Fingerprint, Zap } from 'lucide-react';
 
 const riskData = [
-  { subject: 'Multi-Account', A: 120, fullMark: 150 },
-  { subject: 'Payout Velocity', A: 98, fullMark: 150 },
-  { subject: 'Referral Abuse', A: 86, fullMark: 150 },
-  { subject: 'IP Anomalies', A: 99, fullMark: 150 },
-  { subject: 'Bonus Churn', A: 85, fullMark: 150 },
+  { subject: 'Multi-cuenta', A: 120, fullMark: 150 },
+  { subject: 'Retiros rápidos', A: 98, fullMark: 150 },
+  { subject: 'Abuso referidos', A: 86, fullMark: 150 },
+  { subject: 'IPs anómalas', A: 99, fullMark: 150 },
+  { subject: 'Abuso bonos', A: 85, fullMark: 150 },
 ];
 
 export const RiskDashboard: React.FC = () => {
@@ -31,11 +31,11 @@ export const RiskDashboard: React.FC = () => {
       <div className="flex items-center justify-between mb-8">
         <h3 className="text-lg font-bold flex items-center gap-2 text-red-600">
           <ShieldAlert className="w-5 h-5" />
-          Risk & Fraud Intelligence
+          Inteligencia de Riesgo y Fraude
         </h3>
         <div className="flex items-center gap-1 text-[10px] font-bold text-gray-500 uppercase">
           <Zap className="w-3 h-3 text-yellow-500" />
-          Real-time Engine: ACTIVE
+          Motor en tiempo real: ACTIVO
         </div>
       </div>
 
@@ -60,8 +60,8 @@ export const RiskDashboard: React.FC = () => {
         <div className="space-y-6">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-500">Global Threat Level</span>
-              <span className="text-xs font-bold text-yellow-600">MEDIUM</span>
+              <span className="text-xs font-medium text-gray-500">Nivel de amenaza global</span>
+              <span className="text-xs font-bold text-yellow-600">MEDIO</span>
             </div>
             <div className="w-full h-2 bg-gray-100 dark:bg-gray-900 rounded-full overflow-hidden">
               <div className="h-full bg-yellow-500 w-[65%]" />
@@ -71,19 +71,19 @@ export const RiskDashboard: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-100 dark:border-red-900/30 text-center">
               <Fingerprint className="w-5 h-5 text-red-500 mx-auto mb-2" />
-              <p className="text-[10px] text-gray-500 uppercase font-bold">Suspicious IPs</p>
+              <p className="text-[10px] text-gray-500 uppercase font-bold">IPs sospechosas</p>
               <h4 className="text-xl font-bold text-red-600">12</h4>
             </div>
             <div className="p-4 bg-orange-50 dark:bg-orange-900/10 rounded-xl border border-orange-100 dark:border-orange-900/30 text-center">
               <ShieldAlert className="w-5 h-5 text-orange-500 mx-auto mb-2" />
-              <p className="text-[10px] text-gray-500 uppercase font-bold">Risk Flags</p>
+              <p className="text-[10px] text-gray-500 uppercase font-bold">Alertas de riesgo</p>
               <h4 className="text-xl font-bold text-orange-600">42</h4>
             </div>
           </div>
 
           <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-xl">
-            <p className="text-[10px] font-bold text-gray-400 mb-2 uppercase">Recent Anomaly</p>
-            <p className="text-xs text-gray-700 dark:text-gray-300 italic">"Suspicious payout velocity detected for 3 users in Room #14. Correlation ID: tx_9821"</p>
+            <p className="text-[10px] font-bold text-gray-400 mb-2 uppercase">Anomalía reciente</p>
+            <p className="text-xs text-gray-700 dark:text-gray-300 italic">"Velocidad de retiros sospechosa detectada en 3 usuarios en Sala #14. ID: tx_9821"</p>
           </div>
         </div>
       </div>
