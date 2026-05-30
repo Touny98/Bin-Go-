@@ -1,9 +1,9 @@
-import { getClient } from '../db';
+import { getClient, query } from '../db';
 import { LedgerService } from './LedgerService';
 import { WalletEngine } from './WalletEngine';
 import { logger } from '../utils/logger';
 import { TrucoMatchService } from '../domain/truco/TrucoMatchService';
-import { TrucoMatchStatus } from '../engine/truco/TrucoStateMachine';
+import { TrucoMatchStatus, TrucoStateMachine } from '../engine/truco/TrucoStateMachine';
 import { TrucoMatchRow } from '../domain/truco/types';
 
 /**
@@ -138,28 +138,36 @@ export class TrucoSettlementService {
     const fee = Math.round(match.pot_amount * match.fee_pct * 100) / 100;
     const prize = Math.round((match.pot_amount - fee) * 100) / 100;
 
-    await WalletEngine.credit(
-      match.winner_phone,
-      prize,
-      'TRUCO_WIN',
-      match.id
+    // CLAIM ATÓMICO: un solo caller gana la transición GAME_OVER/ABANDONED → PAYOUT_DONE.
+    // El WHERE sobre status serializa a nivel de fila en Postgres; el perdedor de la carrera
+    // obtiene rowCount=0 y NO acredita nada. Esto cierra la doble-paga handler-vs-worker.
+    // (Antes el credit ocurría fuera de lock, antes del flip → doble pago concurrente.)
+    const claim = await query(
+      `UPDATE truco_matches
+          SET status = $1, fee_amount = $2, finished_at = COALESCE(finished_at, NOW()), version = version + 1
+        WHERE id = $3 AND status IN ($4, $5)
+        RETURNING id`,
+      [TrucoMatchStatus.PAYOUT_DONE, fee, matchId, TrucoMatchStatus.GAME_OVER, TrucoMatchStatus.ABANDONED]
     );
+    if (claim.rowCount === 0) {
+      logger.info({ matchId }, '[TrucoSettlement] payout no-op — claim perdido o ya pagado');
+      return;
+    }
+
+    // Ganamos el claim → pagamos exactamente una vez.
+    await WalletEngine.credit(match.winner_phone, prize, 'TRUCO_WIN', match.id);
     // Fee a cuenta plataforma (sin pasar por wallets de usuarios)
     await this.recordPlatformFee(match);
 
-    await TrucoMatchService.withMatchLock(matchId, async (m, client) => {
-      const updated = await TrucoMatchService.updateMatch(client, m, {
-        fee_amount: fee,
-        status: TrucoMatchStatus.PAYOUT_DONE,
-        finished_at: m.finished_at ?? new Date(),
-      });
-      // Leaderboards de ambos
-      const loserPhone =
-        updated.winner_phone === updated.player_a_phone
-          ? updated.player_b_phone
-          : updated.player_a_phone;
+    // Leaderboards de ambos (cosmético; si falla no afecta el dinero ya acreditado).
+    const loserPhone =
+      match.winner_phone === match.player_a_phone
+        ? match.player_b_phone
+        : match.player_a_phone;
+    const client = await getClient();
+    try {
       await TrucoMatchService.upsertLeaderboard(client, {
-        phone: updated.winner_phone!,
+        phone: match.winner_phone,
         won: true,
         totalWonDelta: prize,
       });
@@ -168,7 +176,9 @@ export class TrucoSettlementService {
         won: false,
         totalWonDelta: 0,
       });
-    });
+    } finally {
+      client.release();
+    }
 
     logger.info(
       { matchId, winner: match.winner_phone, prize, fee },
@@ -184,8 +194,11 @@ export class TrucoSettlementService {
     const match = await TrucoMatchService.getMatch(matchId);
     if (!match) throw new Error(`Match ${matchId} no existe`);
 
-    if (match.status === TrucoMatchStatus.PAYOUT_DONE) {
-      logger.warn({ matchId }, '[TrucoSettlement] refundAll sobre match ya pagado, no-op');
+    // Idempotencia: si el match ya está en estado terminal (PAYOUT_DONE o CANCELLED),
+    // no reembolsar de nuevo. (Antes sólo se chequeaba PAYOUT_DONE → un segundo refundAll
+    // sobre un match ya CANCELLED reembolsaba dos veces.)
+    if (TrucoStateMachine.isTerminal(match.status)) {
+      logger.warn({ matchId, status: match.status }, '[TrucoSettlement] refundAll no-op — match terminal');
       return;
     }
 

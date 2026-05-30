@@ -28,7 +28,7 @@ Harness: **Vitest** + Postgres descartable (`bingo_test`, base separada de dev) 
 | 1.2 | Invariantes de ledger | 0.5 d | ✅ | `calculateBalance == Σ(CREDIT−DEBIT)`; aislamiento por wallet; decimales |
 | 1.3 | Webhook MP → cartón pago → reserva | 1 d | ✅ | Webhook duplicado no acredita dos veces; estados consistentes |
 | 1.4 | Winner lock + dispersión Bingo (concurrencia) | 1 d | 🟡 | Parte hecha: WalletEngine endurecido + tests anti doble-gasto. Falta: lock de ganador en `BingoGame`/`GameSessionService` |
-| 1.5 | Settlement Truco | 1 d | ⬜ | Ganador cobra `pot−fee`; abandono → refund; payout idempotente |
+| 1.5 | Settlement Truco | 1 d | ✅ | Ganador cobra `pot−fee`; abandono → refund; payout idempotente (incl. concurrente) |
 | 1.6 | Flujo payout_requests | 0.5 d | ⬜ | `idempotency_key` único; sin doble pago; risk_score aplicado |
 | 1.7 | Aserción de reconciliación | 0.5 d | ⬜ | Detecta drift entre `wallets.real_balance` y verdad del ledger |
 
@@ -47,6 +47,14 @@ Harness: **Vitest** + Postgres descartable (`bingo_test`, base separada de dev) 
 1. **Race concurrente en depósitos:** el chequeo de idempotencia es a nivel app (cubre el reintento secuencial de MP, el caso real). Para blindar el caso concurrente (BullMQ `concurrency:5`) falta un **índice único parcial** `ledger_entries(reference_id) WHERE category='DEPOSIT'` — requiere de-dup previo de datos, por eso no se aplicó a ciegas en prod.
 2. **Reconocimiento de ingresos en RESERVA, no en pago:** `reserveCards()` registra el FEE de plataforma y la contribución al jackpot al **reservar** (antes de pagar). Al expirar una reserva impaga (`expireReservation`), **NO se revierten** → el jackpot y el revenue quedan inflados por reservas nunca pagadas. Bug de contabilidad para WS1.7.
 3. **Pago tardío sobre reserva expirada:** `confirmPayment()` no valida estado EXPIRED → un webhook tardío puede reactivar (EXPIRED→PAID) una reserva ya vencida. Edge menor.
+
+### Hallazgo aplicado (1.5) — Doble-pago concurrente en Truco (BUG REAL)
+El truco tiene **dos caminos de payout** (el handler conversacional llama `payout()` directo al GAME_OVER **y** `TrucoPayoutWorker` lo encola como recovery). El `jobId` dedupea jobs del worker, pero **no** la carrera handler-vs-worker. En `payout()` el `credit` ocurría **fuera de lock, antes** del flip a `PAYOUT_DONE` → dos llamadas concurrentes pagaban dos veces (test: ganador recibió $3.800 en vez de $1.900). Análogo en `refundAll()`: sólo se protegía contra `PAYOUT_DONE`, no contra `CANCELLED` → doble reembolso secuencial ($1.000 vs $500).
+- **Fix payout:** *claim atómico* — `UPDATE ... WHERE status IN ('GAME_OVER','ABANDONED')` flipa a `PAYOUT_DONE`; sólo un caller obtiene `rowCount=1` y acredita. El perdedor de la carrera no-op.
+- **Fix refundAll:** guard `isTerminal(status)` (no reembolsa si ya está `PAYOUT_DONE`/`CANCELLED`), preservando la validación de transición del state machine.
+- **Idempotencia secuencial** de payout (el caso del retry de BullMQ) ya funcionaba y quedó cubierta con tests.
+
+**Residuales 1.5 (→ WS1.7 / backlog):** (a) crash entre claim y credit deja el match `PAYOUT_DONE` con el ganador sin cobrar — *recuperable* y detectable por reconciliación (mejor que el doble-pago anterior); (b) `refundAll` concurrente (no secuencial) sigue siendo posible, pero es un path de error de bajo riesgo (no tiene doble disparador como payout).
 
 **DoD del workstream:** los 6 flujos de dinero cubiertos; CI corre los tests en cada push; cualquier regresión rompe el build.
 
