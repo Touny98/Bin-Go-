@@ -29,7 +29,7 @@ Harness: **Vitest** + Postgres descartable (`bingo_test`, base separada de dev) 
 | 1.3 | Webhook MP → cartón pago → reserva | 1 d | ✅ | Webhook duplicado no acredita dos veces; estados consistentes |
 | 1.4 | Winner lock + dispersión Bingo (concurrencia) | 1 d | 🟡 | Parte hecha: WalletEngine endurecido + tests anti doble-gasto. Falta: lock de ganador en `BingoGame`/`GameSessionService` |
 | 1.5 | Settlement Truco | 1 d | ✅ | Ganador cobra `pot−fee`; abandono → refund; payout idempotente (incl. concurrente) |
-| 1.6 | Flujo payout_requests | 0.5 d | ⬜ | `idempotency_key` único; sin doble pago; risk_score aplicado |
+| 1.6 | Flujo payout_requests | 0.5 d | ✅ | Sin doble-débito (retry) ni doble-reembolso; refund vía ledger; risk_score aplicado |
 | 1.7 | Aserción de reconciliación | 0.5 d | ⬜ | Detecta drift entre `wallets.real_balance` y verdad del ledger |
 
 ### Hallazgo aplicado (1.4) — Hardening de `WalletEngine`
@@ -55,6 +55,17 @@ El truco tiene **dos caminos de payout** (el handler conversacional llama `payou
 - **Idempotencia secuencial** de payout (el caso del retry de BullMQ) ya funcionaba y quedó cubierta con tests.
 
 **Residuales 1.5 (→ WS1.7 / backlog):** (a) crash entre claim y credit deja el match `PAYOUT_DONE` con el ganador sin cobrar — *recuperable* y detectable por reconciliación (mejor que el doble-pago anterior); (b) `refundAll` concurrente (no secuencial) sigue siendo posible, pero es un path de error de bajo riesgo (no tiene doble disparador como payout).
+
+### Hallazgo aplicado (1.6) — Retiros: doble-reembolso y "dinero gratis" (BUG REAL)
+La ruta admin de rechazo `POST /api/admin/finance/payouts/:id/reject` (`adminFinance.ts`):
+1. Reembolsaba escribiendo `wallets.real_balance` **directo, salteándose el ledger** → drift.
+2. **Sin idempotencia:** doble clic en "Rechazar" → `real_balance += amount` dos veces → **doble reembolso**.
+3. Reembolsaba **sin verificar débito previo:** rechazar un retiro en `PENDING_REVIEW` (que nunca se debitó, el débito ocurre sólo en el bloque APPROVED del worker) **acreditaba plata gratis**.
+- **Fix:** la ruta hace un *claim atómico* (`UPDATE ... WHERE status NOT IN ('PAID','FAILED')`) y delega el reembolso a `WalletEngine.refundWithdrawal()`, que es **vía ledger, idempotente** (no repite si ya hay REFUND) y **sólo reembolsa si existe el DEBIT WITHDRAWAL** (no crea dinero).
+- **Además:** `WalletEngine.lockForWithdrawal()` ahora es idempotente por `payoutId` → el worker no doble-debita si se reintenta con estado APPROVED tras un crash.
+- **Tests:** `test/finance/payout.test.ts` (RiskEngine + idempotencia de débito + reembolso seguro).
+
+**Residuales 1.6 (→ backlog):** (a) el worker `PayoutProcessorWorker` tiene un bloque APPROVED re-entrante; la idempotencia de `lockForWithdrawal` lo cubre, pero un *claim atómico* APPROVED→PROCESSING sería más limpio; (b) `RiskEngine` es básico (umbral fijo $50k, sin device/IP, sin KYC) — ver requisitos del [`MEMO-legal-salta.md`](./MEMO-legal-salta.md).
 
 **DoD del workstream:** los 6 flujos de dinero cubiertos; CI corre los tests en cada push; cualquier regresión rompe el build.
 

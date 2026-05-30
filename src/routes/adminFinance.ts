@@ -3,6 +3,7 @@ import { OperatorActionLockService } from '../services/admin/OperatorActionLockS
 import { logger } from '../utils/logger';
 import { query } from '../db';
 import { notifyHighQueue } from '../queue';
+import { WalletEngine } from '../finance/WalletEngine';
 
 const router = Router();
 
@@ -162,21 +163,19 @@ router.post('/payouts/:payoutId/reject', async (req, res) => {
     const { user_id, amount, whatsapp_jid, phone_number } = payoutRes.rows[0];
     const chatId = whatsapp_jid || `${phone_number}@c.us`;
 
-    // Marcar como FAILED y guardar razón
-    await query(
-      `UPDATE payout_requests SET status = $1, risk_notes = $2, updated_at = NOW() WHERE id = $3`,
-      ['FAILED', reason || 'Rechazado por el administrador', payoutId]
+    // Claim atómico del rechazo: evita doble-rechazo (y por ende doble-notificación).
+    const claim = await query(
+      `UPDATE payout_requests SET status = 'FAILED', risk_notes = $1, updated_at = NOW()
+       WHERE id = $2 AND status NOT IN ('PAID','FAILED') RETURNING id`,
+      [reason || 'Rechazado por el administrador', payoutId]
     );
+    if (claim.rowCount === 0) {
+      return res.status(409).json({ error: 'El retiro ya está en estado terminal (PAID o FAILED)' });
+    }
 
-    // Devolver dinero a la billetera del usuario
-    const phoneNumber = phone_number;
-    await query(
-      `INSERT INTO wallets (user_id, real_balance)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id) DO UPDATE
-       SET real_balance = wallets.real_balance + $2`,
-      [phoneNumber, amount]
-    );
+    // Reembolso vía ledger (sin drift), idempotente y SÓLO si realmente se había
+    // debitado el saldo. Un retiro en PENDING_REVIEW nunca se debitó → no se crea dinero.
+    const { refunded } = await WalletEngine.refundWithdrawal(user_id, amount, payoutId);
 
     // Notificar al usuario
     const montoStr = new Intl.NumberFormat('es-AR').format(amount);
@@ -184,12 +183,14 @@ router.post('/payouts/:payoutId/reject', async (req, res) => {
       `❌ *Tu solicitud de retiro fue rechazada*\n\n` +
       `Monto: *$${montoStr}*\n` +
       `Razón: ${reason || 'No especificada'}\n\n` +
-      `El dinero fue devuelto a tu billetera. Podés intentar nuevamente después.`;
+      (refunded
+        ? `El dinero fue devuelto a tu billetera. Podés intentar nuevamente después.`
+        : `Si se había descontado saldo, ya quedó regularizado.`);
 
     await notifyHighQueue.add('send_notification', { to: chatId, text: rejectMsg });
 
-    logger.info({ payoutId, userId: user_id, reason, operatorId }, '[AdminFinanceRoute] Payout rejected');
-    res.json({ success: true, message: 'Payout rejected and user notified' });
+    logger.info({ payoutId, userId: user_id, reason, refunded, operatorId }, '[AdminFinanceRoute] Payout rejected');
+    res.json({ success: true, message: 'Payout rejected and user notified', refunded });
   } catch (error: any) {
     logger.error({ payoutId, error: error.message }, '[AdminFinanceRoute] Failed to reject payout');
     res.status(500).json({ error: 'Failed to reject payout' });
