@@ -13,7 +13,9 @@
     "simulate:flow": "ts-node src/scripts/simulateFlow.ts",
     "test:truco": "ts-node --transpile-only src/scripts/test-truco.ts",
     "e2e:truco": "ts-node --transpile-only src/scripts/e2e-truco-simulation.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:money": "vitest run test/finance"
   },
   "keywords": [],
   "author": "",
@@ -53,6 +55,7 @@
     "@types/uuid": "^10.0.0",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   }
 }

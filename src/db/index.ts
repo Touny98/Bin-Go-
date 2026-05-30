@@ -11,6 +11,9 @@ export const query = (text: string, params?: any[]) => pool.query(text, params);
 
 export const getClient = () => pool.connect();
 
+/** Cierra el pool de conexiones (usado en teardown de tests y shutdown limpio). */
+export const closePool = () => pool.end();
+
 export const initDb = async () => {
   const client = await pool.connect();
   try {

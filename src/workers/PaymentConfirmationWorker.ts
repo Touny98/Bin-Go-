@@ -27,7 +27,13 @@ export const paymentConfirmationWorker = new Worker('payment-confirmation-queue'
       // ── Carga de saldo de wallet (Truco / cualquier flujo futuro) ──
       if (externalRef.startsWith('DEPOSIT_')) {
         try {
-          const { phone, amount } = await WalletDepositService.confirmDeposit(externalRef);
+          const { phone, amount, applied } = await WalletDepositService.confirmDeposit(externalRef);
+
+          // Webhook duplicado (at-least-once): ya estaba acreditado → no re-notificar.
+          if (!applied) {
+            logger.warn({ phone, externalRef }, '[PaymentConfirmationWorker] Depósito duplicado, sin re-notificar');
+            return;
+          }
 
           // Resolver JID para notificación
           let chatId: string;

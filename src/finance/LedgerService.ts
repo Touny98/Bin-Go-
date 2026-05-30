@@ -1,6 +1,13 @@
 import { query } from '../db';
 import { logger } from '../utils/logger';
 
+/**
+ * Ejecutor de queries. Por defecto es el pool global, pero acepta un cliente
+ * de transacción (PoolClient) para que el asiento contable participe de la
+ * MISMA transacción atómica que movió el saldo del wallet.
+ */
+export type QueryExecutor = (text: string, params?: any[]) => Promise<any>;
+
 export type EntryType = 'DEBIT' | 'CREDIT';
 export type EntryCategory =
   | 'WINNING'
@@ -20,15 +27,16 @@ export class LedgerService {
    * Records an immutable entry in the financial ledger
    */
   public static async recordEntry(
-    walletId: string, 
-    type: EntryType, 
-    category: EntryCategory, 
-    amount: number, 
+    walletId: string,
+    type: EntryType,
+    category: EntryCategory,
+    amount: number,
     referenceId: string,
-    metadata: any = {}
+    metadata: any = {},
+    exec: QueryExecutor = query
   ): Promise<number> {
     try {
-      const res = await query(
+      const res = await exec(
         `INSERT INTO ledger_entries (wallet_id, entry_type, category, amount, reference_id, metadata)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
         [walletId, type, category, amount, referenceId, JSON.stringify(metadata)]
