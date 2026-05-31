@@ -86,12 +86,15 @@ Problema: `engine/BingoGame.ts` usa `Math.random()` (no CSPRNG, no verificable).
 
 | # | Tarea | Esfuerzo | Estado |
 |---|---|---|---|
-| 2.1 | Diseño del esquema (server-seed + entropía pública) | 0.25 d | ⬜ |
-| 2.2 | Reemplazar `Math.random` por CSPRNG sembrado (HMAC-SHA256 → Fisher-Yates) | 0.5–1 d | ⬜ |
-| 2.3 | Migración aditiva: `seed_hash` al crear, `revealed_seed` al finalizar | 0.25 d | ⬜ |
-| 2.4 | Exponer commit antes / reveal después + verificador reproducible | 0.5 d | ⬜ |
-| 2.5 | Tests de fairness (determinismo, hash, distribución) | 0.5 d | ⬜ |
-| 2.6 | Compatibilidad de sesiones en vuelo | 0.25 d | ⬜ |
+| 2.1 | Diseño del esquema (server-seed + entropía pública) | 0.25 d | ✅ | `ProvablyFair`: server-seed + HMAC-SHA256 CSPRNG, `publicSeed`-ready |
+| 2.2 | Reemplazar `Math.random` por CSPRNG sembrado (HMAC-SHA256 → Fisher-Yates) | 0.5–1 d | 🟡 | Primitivo `ProvablyFair.drawSequence` hecho; **falta cablearlo** en `GameStartWorker` |
+| 2.3 | Migración aditiva: `seed_hash` al crear, `revealed_seed` al finalizar | 0.25 d | ⬜ | |
+| 2.4 | Exponer commit antes / reveal después + verificador reproducible | 0.5 d | 🟡 | `ProvablyFair.commit/verify` hecho; falta exponerlo en el flujo (WhatsApp/admin) |
+| 2.5 | Tests de fairness (determinismo, hash, distribución) | 0.5 d | ✅ | `test/engine/provably-fair.test.ts` (8 tests) |
+| 2.6 | Compatibilidad de sesiones en vuelo | 0.25 d | ⬜ | |
+
+**Paso 1 (riesgo cero) ✅:** primitivo `ProvablyFair` aislado y testeado (CSPRNG HMAC-SHA256 counter-mode + rejection sampling, determinista, verificable). NO toca el flujo en vivo todavía.
+**Paso 2 (pendiente, toca gameplay):** cablear en `GameStartWorker` (sólo caller real de `generateDrawSequence`, hoy llamado con `undefined` → `Math.random()`), migración `seed_hash`/`server_seed`, publicar el hash antes de la 1ª bolilla y revelar el seed al finalizar. `generateIntegrityHash` es código muerto (no se llama) → se reemplaza.
 
 **Depende de 1.1 + 1.4.** **DoD:** hash publicado antes de la primera bola, seed revelado al cierre, verificador reproducible, tests de 1.4 siguen verdes.
 
