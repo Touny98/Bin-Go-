@@ -30,7 +30,7 @@ Harness: **Vitest** + Postgres descartable (`bingo_test`, base separada de dev) 
 | 1.4 | Winner lock + dispersión Bingo (concurrencia) | 1 d | 🟡 | Parte hecha: WalletEngine endurecido + tests anti doble-gasto. Falta: lock de ganador en `BingoGame`/`GameSessionService` |
 | 1.5 | Settlement Truco | 1 d | ✅ | Ganador cobra `pot−fee`; abandono → refund; payout idempotente (incl. concurrente) |
 | 1.6 | Flujo payout_requests | 0.5 d | ✅ | Sin doble-débito (retry) ni doble-reembolso; refund vía ledger; risk_score aplicado |
-| 1.7 | Aserción de reconciliación | 0.5 d | ⬜ | Detecta drift entre `wallets.real_balance` y verdad del ledger |
+| 1.7 | Aserción de reconciliación | 0.5 d | ✅ | Detecta drift entre saldo denormalizado y verdad del ledger (incluye bonus) |
 
 ### Hallazgo aplicado (1.4) — Hardening de `WalletEngine`
 `WalletEngine` ejecutaba `BEGIN/COMMIT` sobre el **pool** (`query()`), no sobre un cliente dedicado. Hacer `query('BEGIN')` devuelve el cliente al pool **dentro de una transacción abierta** → riesgo documentado en `node-postgres` de fuga de transacción entre requests y de que el `FOR UPDATE` no serialice bajo carga / con pgBouncer. La correctitud era **incidental** (dependía del reuso LIFO del pool).
@@ -67,7 +67,14 @@ La ruta admin de rechazo `POST /api/admin/finance/payouts/:id/reject` (`adminFin
 
 **Residuales 1.6 (→ backlog):** (a) el worker `PayoutProcessorWorker` tiene un bloque APPROVED re-entrante; la idempotencia de `lockForWithdrawal` lo cubre, pero un *claim atómico* APPROVED→PROCESSING sería más limpio; (b) `RiskEngine` es básico (umbral fijo $50k, sin device/IP, sin KYC) — ver requisitos del [`MEMO-legal-salta.md`](./MEMO-legal-salta.md).
 
-**DoD del workstream:** los 6 flujos de dinero cubiertos; CI corre los tests en cada push; cualquier regresión rompe el build.
+### Hallazgo aplicado (1.7) — Reconciliación con falso positivo de bonus
+El `ReconciliationWorker` original comparaba el ledger completo **sólo contra `real_balance`**, ignorando `bonus_balance`. Como `WalletEngine.credit('BONUS')` registra un asiento en el ledger pero suma a `bonus_balance`, **cualquier saldo de BONUS disparaba un falso positivo de drift**.
+- **Fix:** invariante correcto `ledger == real_balance + bonus_balance`, extraído a `ReconciliationService` (testeable, reutilizable desde el panel admin). El worker ahora sólo llama `ReconciliationService.audit()`.
+- **Tests:** `test/finance/reconciliation.test.ts` (consistente sin anomalía; bonus sin falso positivo; detecta drift de `real_balance` corrupto; `audit()` reporta total + anomalías).
+
+**Extensiones futuras de reconciliación (→ backlog):** además del drift wallet↔ledger, conviene chequear: (a) jackpot de la sesión == suma de contribuciones menos pagado; (b) match Truco `PAYOUT_DONE` debe tener asiento `TRUCO_WIN` (caza el residual de crash de 1.5); (c) reservas impagas no deben contar como revenue (residual de 1.3).
+
+**DoD del workstream:** los 6 flujos de dinero cubiertos; CI corre los tests en cada push; cualquier regresión rompe el build. ✅ **WS1 completo** (excepto winner-lock de Bingo, parte pendiente de 1.4).
 
 ---
 
