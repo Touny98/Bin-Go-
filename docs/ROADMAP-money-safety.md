@@ -27,7 +27,7 @@ Harness: **Vitest** + Postgres descartable (`bingo_test`, base separada de dev) 
 | 1.1 | Harness Vitest + DB efímera + guard de seguridad | 0.5–1 d | ✅ | `npm test` corre verde, aislado por test, sobre `bingo_test` |
 | 1.2 | Invariantes de ledger | 0.5 d | ✅ | `calculateBalance == Σ(CREDIT−DEBIT)`; aislamiento por wallet; decimales |
 | 1.3 | Webhook MP → cartón pago → reserva | 1 d | ✅ | Webhook duplicado no acredita dos veces; estados consistentes |
-| 1.4 | Winner lock + dispersión Bingo (concurrencia) | 1 d | 🟡 | Parte hecha: WalletEngine endurecido + tests anti doble-gasto. Falta: lock de ganador en `BingoGame`/`GameSessionService` |
+| 1.4 | Winner lock + dispersión Bingo (concurrencia) | 1 d | ✅ | WalletEngine endurecido + anti doble-gasto + `lockWinner` (FOR UPDATE) cubierto: un solo ganador por pozo |
 | 1.5 | Settlement Truco | 1 d | ✅ | Ganador cobra `pot−fee`; abandono → refund; payout idempotente (incl. concurrente) |
 | 1.6 | Flujo payout_requests | 0.5 d | ✅ | Sin doble-débito (retry) ni doble-reembolso; refund vía ledger; risk_score aplicado |
 | 1.7 | Aserción de reconciliación | 0.5 d | ✅ | Detecta drift entre saldo denormalizado y verdad del ledger (incluye bonus) |
@@ -74,7 +74,10 @@ El `ReconciliationWorker` original comparaba el ledger completo **sólo contra `
 
 **Extensiones futuras de reconciliación (→ backlog):** además del drift wallet↔ledger, conviene chequear: (a) jackpot de la sesión == suma de contribuciones menos pagado; (b) match Truco `PAYOUT_DONE` debe tener asiento `TRUCO_WIN` (caza el residual de crash de 1.5); (c) reservas impagas no deben contar como revenue (residual de 1.3).
 
-**DoD del workstream:** los 6 flujos de dinero cubiertos; CI corre los tests en cada push; cualquier regresión rompe el build. ✅ **WS1 completo** (excepto winner-lock de Bingo, parte pendiente de 1.4).
+### Nota (1.4) — Winner-lock de Bingo ya era correcto
+`GameSessionService.lockWinner()` ya usaba el patrón correcto (cliente dedicado + `SELECT ... FOR UPDATE` sobre la fila de la sesión). Bajo dos `lockWinner` concurrentes gana exactamente uno (el segundo se bloquea, lee `winner_id` y devuelve `false`). **No requirió fix** — sólo se agregó la red de regresión (`test/finance/winner-lock.test.ts`).
+
+**DoD del workstream:** los 6 flujos de dinero cubiertos; CI corre los tests en cada push; cualquier regresión rompe el build. ✅ **WS1 COMPLETO (1.1–1.7).**
 
 ---
 
